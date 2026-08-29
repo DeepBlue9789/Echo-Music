@@ -1,6 +1,6 @@
 
 
-package echo.music.iad1tya.extensions
+package echo.music.iad1tya.playback
 
 import echo.music.iad1tya.models.MediaMetadata
 import echo.music.iad1tya.models.PersistQueue
@@ -11,6 +11,7 @@ import echo.music.iad1tya.playback.queues.LocalAlbumRadio
 import echo.music.iad1tya.playback.queues.Queue
 import echo.music.iad1tya.playback.queues.YouTubeAlbumRadio
 import echo.music.iad1tya.playback.queues.YouTubeQueue
+import echo.music.iad1tya.extensions.toMediaItem
 
 fun Queue.toPersistQueue(
     title: String?,

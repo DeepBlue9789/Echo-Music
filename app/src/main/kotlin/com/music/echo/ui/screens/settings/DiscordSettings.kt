@@ -45,8 +45,8 @@ import echo.music.iad1tya.LocalPlayerConnection
 import echo.music.iad1tya.R
 import echo.music.iad1tya.constants.*
 import echo.music.iad1tya.db.entities.Song
-import com.music.echo.discord.DiscordAuthCoordinator
-import com.music.echo.discord.DiscordOAuthRepository
+import echo.music.iad1tya.discord.DiscordAuthCoordinator
+import echo.music.iad1tya.discord.DiscordOAuthRepository
 import echo.music.iad1tya.ui.component.EditTextPreference
 import echo.music.iad1tya.ui.component.EnumListPreference
 import echo.music.iad1tya.ui.component.IconButton

@@ -1,6 +1,6 @@
 
 
-package com.music.echo.discord
+package echo.music.iad1tya.discord
 
 object GatewayOp {
     const val DISPATCH = 0

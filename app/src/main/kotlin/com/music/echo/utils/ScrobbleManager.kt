@@ -1,7 +1,7 @@
 package echo.music.iad1tya.utils
 
 import echo.music.iad1tya.models.MediaMetadata
-import com.music.echo.utils.lastfm.LastFM
+import echo.music.iad1tya.utils.lastfm.LastFM
 import echo.music.iad1tya.utils.isLocalMediaId
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job

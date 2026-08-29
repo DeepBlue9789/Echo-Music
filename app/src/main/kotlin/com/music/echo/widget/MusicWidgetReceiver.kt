@@ -80,10 +80,10 @@ class MusicWidgetReceiver : AppWidgetProvider() {
     }
 
     companion object {
-        const val ACTION_PLAY_PAUSE = "echo.music.iad1tya.widget.PLAY_PAUSE"
-        const val ACTION_LIKE = "echo.music.iad1tya.widget.LIKE"
-        const val ACTION_NEXT = "echo.music.iad1tya.widget.NEXT"
-        const val ACTION_PREVIOUS = "echo.music.iad1tya.widget.PREVIOUS"
-        const val ACTION_UPDATE_WIDGET = "echo.music.iad1tya.widget.UPDATE_WIDGET"
+        const val ACTION_PLAY_PAUSE = "com.music.echo.widget.PLAY_PAUSE"
+        const val ACTION_LIKE = "com.music.echo.widget.LIKE"
+        const val ACTION_NEXT = "com.music.echo.widget.NEXT"
+        const val ACTION_PREVIOUS = "com.music.echo.widget.PREVIOUS"
+        const val ACTION_UPDATE_WIDGET = "com.music.echo.widget.UPDATE_WIDGET"
     }
 }

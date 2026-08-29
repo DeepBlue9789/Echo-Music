@@ -10,6 +10,7 @@ import echo.music.iad1tya.constants.PreferredLyricsProviderKey
 import echo.music.iad1tya.db.entities.LyricsEntity.Companion.LYRICS_NOT_FOUND
 import echo.music.iad1tya.extensions.toEnum
 import echo.music.iad1tya.models.MediaMetadata
+import echo.music.iad1tya.playback.LyricsWithProvider
 import echo.music.iad1tya.utils.NetworkConnectivityObserver
 import echo.music.iad1tya.utils.dataStore
 import echo.music.iad1tya.utils.reportException
@@ -112,7 +113,7 @@ constructor(
                 val result = channel.receive()
                 responses++
                 if (result != null) {
-                    val isSynced = result.lyrics.trimStart().startsWith("[")
+                    val isSynced = result.lyrics?.trimStart()?.startsWith("[") == true
                     if (isSynced) {
                         coroutineContext.cancelChildren()
                         return@coroutineScope result
@@ -193,7 +194,3 @@ data class LyricsResult(
     val lyrics: String,
 )
 
-data class LyricsWithProvider(
-    val lyrics: String,
-    val provider: String,
-)
