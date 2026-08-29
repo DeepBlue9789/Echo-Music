@@ -51,6 +51,8 @@ import echo.music.iad1tya.db.entities.SongWithStats
 import echo.music.iad1tya.extensions.reversed
 import echo.music.iad1tya.extensions.toSQLiteQuery
 import echo.music.iad1tya.models.MediaMetadata
+import echo.music.iad1tya.models.toSongEntity
+
 import echo.music.iad1tya.models.toMediaMetadata
 import echo.music.iad1tya.ui.utils.resize
 import kotlinx.coroutines.flow.Flow

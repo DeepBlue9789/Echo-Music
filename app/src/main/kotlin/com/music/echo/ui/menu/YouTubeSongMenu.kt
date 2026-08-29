@@ -73,6 +73,7 @@ import echo.music.iad1tya.db.entities.SpeedDialItem
 import echo.music.iad1tya.db.entities.SongEntity
 import echo.music.iad1tya.extensions.toMediaItem
 import echo.music.iad1tya.models.MediaMetadata
+import echo.music.iad1tya.models.toSongEntity
 import echo.music.iad1tya.models.toMediaMetadata
 import echo.music.iad1tya.playback.ExoDownloadService
 import echo.music.iad1tya.playback.queues.YouTubeQueue
