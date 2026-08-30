@@ -736,6 +736,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                val shuffleEnabled by playerConnection?.shuffleModeEnabled?.collectAsState() ?: remember { mutableStateOf(false) }
 
                 val onMusicRecognitionClick: (() -> Unit) = remember(navController, playerBottomSheetState) {
                     {
@@ -1150,6 +1151,7 @@ class MainActivity : ComponentActivity() {
                                                 items = navigationItems,
                                                 pureBlack = pureBlack,
                                                 onShuffleClick = onShuffleClick,
+                                                shuffleEnabled = shuffleEnabled,
                                                 shuffleIconRes = R.drawable.shuffle,
                                                 shuffleContentDescription = stringResource(R.string.shuffle),
                                                 onMusicRecognitionClick = onMusicRecognitionClick,
