@@ -6,6 +6,8 @@ the agent full context without re-scanning the whole codebase every session.
 
 ## Development Rules & Guidelines
 
+> **Deep implementation & planning rule:** Whenever asked to add a certain feature, make an improvement, or import something, **do not rush to write code**. First, dig deep into the codebase to understand the context and implications. Make a **proper plan** (e.g. creating an `implementation_plan.md` and waiting for approval if needed). Only after the plan is solid, proceed with the implementation. Finally, after implementing, **thoroughly check each and everything**—from core functionality to UI correctness—before considering the task complete.
+
 > **Maintenance rule:** whenever you add or change a feature, structure,
 > module, build config, or convention in this repo, **update this file in
 > the same PR/commit**. This file is only useful if it stays accurate —
