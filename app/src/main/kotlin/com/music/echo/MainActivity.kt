@@ -14,6 +14,10 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 import android.Manifest
 import android.annotation.SuppressLint
@@ -437,6 +441,8 @@ class MainActivity : ComponentActivity() {
         val context = LocalContext.current
         var showUpdateDialog by remember { androidx.compose.runtime.mutableStateOf(false) }
         var availableUpdateVersion by remember { androidx.compose.runtime.mutableStateOf("") }
+        var availableUpdateChangelog by remember { androidx.compose.runtime.mutableStateOf<List<echo.music.iad1tya.echomusic.updater.ChangelogSection>>(emptyList()) }
+        var availableUpdateDescription by remember { androidx.compose.runtime.mutableStateOf<String?>(null) }
 
         LaunchedEffect(Unit) {
             val prefs = context.dataStore.data.first()
@@ -446,13 +452,15 @@ class MainActivity : ComponentActivity() {
                 delay(2000L)
                 checkForUpdate(
                     context = context,
-                    onSuccess = { latestVersion, isAvailable, _, _, _, _, _, _ ->
+                    onSuccess = { latestVersion, isAvailable, changelog, _, _, description, _, _ ->
                         val currentVersion = BuildConfig.VERSION_NAME
                         Log.d("UpdateCheck", "Startup check success. Latest: $latestVersion, Current: $currentVersion, isAvailable: $isAvailable")
                         saveUpdateAvailableState(context, isAvailable)
                         
                         if (isAvailable) {
                             availableUpdateVersion = latestVersion
+                            availableUpdateChangelog = changelog
+                            availableUpdateDescription = description
                             showUpdateDialog = true
                         }
 
@@ -572,7 +580,50 @@ class MainActivity : ComponentActivity() {
             AlertDialog(
                 onDismissRequest = { showUpdateDialog = false },
                 title = { Text(stringResource(R.string.update_available_title)) },
-                text = { Text("Version $availableUpdateVersion is available. Update now?") },
+                text = {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text("Version $availableUpdateVersion is available. Update now?")
+                        if (availableUpdateChangelog.isNotEmpty() || !availableUpdateDescription.isNullOrEmpty()) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = stringResource(R.string.changelog),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .weight(1f, fill = false)
+                                    .verticalScroll(rememberScrollState())
+                            ) {
+                                if (availableUpdateChangelog.isNotEmpty()) {
+                                    availableUpdateChangelog.forEach { section ->
+                                        Text(
+                                            text = section.title,
+                                            style = MaterialTheme.typography.titleSmall,
+                                            fontWeight = FontWeight.SemiBold,
+                                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                        )
+                                        section.items.forEach { item ->
+                                            Text(
+                                                text = "• $item",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
+                                            )
+                                        }
+                                    }
+                                } else if (!availableUpdateDescription.isNullOrEmpty()) {
+                                    Text(
+                                        text = availableUpdateDescription!!,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
                 confirmButton = {
                     Button(onClick = {
                         showUpdateDialog = false
