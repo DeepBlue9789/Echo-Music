@@ -67,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 @Composable
 fun LibraryScreen(navController: NavController) {
     var filterType by rememberEnumPreference(ChipSortTypeKey, LibraryFilter.LIBRARY)
+    var showFabMenu by remember { mutableStateOf(false) }
     var showImportMenu by remember { mutableStateOf(false) }
     var showYoutubeImportDialog by remember { mutableStateOf(false) }
     var showCreatePlaylistDialog by rememberSaveable { mutableStateOf(false) }
@@ -151,49 +152,56 @@ fun LibraryScreen(navController: NavController) {
                         bottom = bottomPadding + 20.dp
                     )
             ) {
-                Column(
-                    modifier = Modifier.align(Alignment.BottomEnd),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
-                    horizontalAlignment = Alignment.End
-                ) {
-                    ExtendedFloatingActionButton(
-                        text = { Text(stringResource(R.string.create_playlist)) },
-                        icon = { Icon(painter = painterResource(R.drawable.add), contentDescription = "Create playlist") },
-                        onClick = { showCreatePlaylistOptionsDialog = true },
+                Box(modifier = Modifier.align(Alignment.BottomEnd)) {
+                    androidx.compose.material3.FloatingActionButton(
+                        onClick = { showFabMenu = true },
                         shape = CircleShape,
                         containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                         contentColor = MaterialTheme.colorScheme.onSurface
-                    )
+                    ) {
+                        Icon(painter = painterResource(R.drawable.add), contentDescription = "Add")
+                    }
 
-                    Box {
-                        ExtendedFloatingActionButton(
-                            text = { Text(stringResource(R.string.import_playlist)) },
-                            icon = { Icon(painter = painterResource(R.drawable.download), contentDescription = "Import playlist") },
-                            onClick = { showImportMenu = true },
-                            shape = CircleShape,
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                            contentColor = MaterialTheme.colorScheme.onSurface
+                    DropdownMenu(
+                        expanded = showFabMenu,
+                        onDismissRequest = { showFabMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.create_playlist)) },
+                            leadingIcon = { Icon(painter = painterResource(R.drawable.add), contentDescription = null) },
+                            onClick = {
+                                showFabMenu = false
+                                showCreatePlaylistOptionsDialog = true
+                            }
                         )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.import_playlist)) },
+                            leadingIcon = { Icon(painter = painterResource(R.drawable.download), contentDescription = null) },
+                            onClick = {
+                                showFabMenu = false
+                                showImportMenu = true
+                            }
+                        )
+                    }
 
-                        DropdownMenu(
-                            expanded = showImportMenu,
-                            onDismissRequest = { showImportMenu = false }
-                        ) {
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = { Text(stringResource(R.string.import_from_spotify)) },
-                                onClick = {
-                                    showImportMenu = false
-                                    navController.navigate("settings/spotify_import")
-                                }
-                            )
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = { Text(stringResource(R.string.import_from_youtube_music)) },
-                                onClick = {
-                                    showImportMenu = false
-                                    showYoutubeImportDialog = true
-                                }
-                            )
-                        }
+                    DropdownMenu(
+                        expanded = showImportMenu,
+                        onDismissRequest = { showImportMenu = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.import_from_spotify)) },
+                            onClick = {
+                                showImportMenu = false
+                                navController.navigate("settings/spotify_import")
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.import_from_youtube_music)) },
+                            onClick = {
+                                showImportMenu = false
+                                showYoutubeImportDialog = true
+                            }
+                        )
                     }
                 }
             }
