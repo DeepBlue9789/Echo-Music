@@ -38,9 +38,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 
+import com.music.echo.p2p.P2PPartnerManager
+
 @Singleton
 class ListenTogetherManager @Inject constructor(
     private val client: ListenTogetherClient,
+    val p2pPartnerManager: P2PPartnerManager,
     @ApplicationContext private val context: Context
 ) {
     companion object {
@@ -1441,6 +1444,31 @@ class ListenTogetherManager @Inject constructor(
         cleanup()
         client.leaveRoom()
     }
+
+    fun connectToPartner(partnerAddress: String, username: String) {
+        Timber.tag(TAG).d("Connecting to P2P Partner: $partnerAddress as $username")
+        p2pPartnerManager.connectToPartner(partnerAddress, username)
+    }
+
+    fun hostP2PSession(username: String) {
+        Timber.tag(TAG).d("Hosting P2P session as $username")
+        p2pPartnerManager.hostLocalSession(username)
+    }
+
+    fun disconnectP2P() {
+        Timber.tag(TAG).d("Disconnecting P2P session")
+        cleanup()
+        p2pPartnerManager.disconnect()
+    }
+
+    fun startPeerDiscovery() {
+        p2pPartnerManager.discovery.startDiscovery()
+    }
+
+    fun stopPeerDiscovery() {
+        p2pPartnerManager.discovery.stopDiscovery()
+    }
+
 
     
     fun approveJoin(userId: String) = client.approveJoin(userId)

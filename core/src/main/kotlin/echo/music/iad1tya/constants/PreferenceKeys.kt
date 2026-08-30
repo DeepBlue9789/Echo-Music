@@ -170,6 +170,10 @@ val ListenTogetherSyncVolumeKey = booleanPreferencesKey("listenTogetherSyncVolum
 val ListenTogetherSmartResyncKey = booleanPreferencesKey("listenTogetherSmartResync")
 val ListenTogetherBlockedUsersKey = stringPreferencesKey("listenTogetherBlockedUsers")
 val ListenTogetherInTopBarKey = booleanPreferencesKey("listenTogetherInTopBar")
+val ListenTogetherModeKey = stringPreferencesKey("listenTogetherMode") // "p2p" or "server"
+val ListenTogetherP2PPartnerIpKey = stringPreferencesKey("listenTogetherP2PPartnerIp")
+val ListenTogetherP2PPortKey = intPreferencesKey("listenTogetherP2PPort")
+val ListenTogetherP2PAutoHostKey = booleanPreferencesKey("listenTogetherP2PAutoHost")
 
 val ListenTogetherSessionTokenKey = stringPreferencesKey("listenTogetherSessionToken")
 val ListenTogetherRoomCodeKey = stringPreferencesKey("listenTogetherRoomCode")

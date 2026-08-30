@@ -430,6 +430,60 @@ class ListenTogetherClient @Inject constructor(
     }
 
     
+    fun connectDirect(targetUrl: String, username: String) {
+        if (_connectionState.value == ConnectionState.CONNECTED || 
+            _connectionState.value == ConnectionState.CONNECTING) {
+            webSocket?.close(1000, "Switching connection")
+            webSocket = null
+        }
+
+        _connectionState.value = ConnectionState.CONNECTING
+        storedUsername = username
+        log(LogLevel.INFO, "Connecting directly to P2P endpoint", targetUrl)
+
+        codec.format = MessageFormat.JSON
+        codec.compressionEnabled = false
+
+        val request = Request.Builder()
+            .url(targetUrl)
+            .build()
+
+        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+            override fun onOpen(webSocket: WebSocket, response: Response) {
+                log(LogLevel.INFO, "Connected directly to P2P endpoint", targetUrl)
+                this@ListenTogetherClient.webSocket = webSocket
+                _connectionState.value = ConnectionState.CONNECTED
+                reconnectAttempts = 0
+                startPingJob()
+                
+                sendMessage(MessageTypes.JOIN_ROOM, JoinRoomPayload("P2P-MESH", username))
+            }
+
+            override fun onMessage(webSocket: WebSocket, text: String) {
+                handleMessage(text.toByteArray())
+            }
+            
+            override fun onMessage(webSocket: WebSocket, bytes: okio.ByteString) {
+                handleMessage(bytes.toByteArray())
+            }
+
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                log(LogLevel.INFO, "P2P connection closing", "Code: $code, Reason: $reason")
+                webSocket.close(1000, null)
+            }
+
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                log(LogLevel.INFO, "P2P connection closed", "Code: $code, Reason: $reason")
+                handleDisconnect()
+            }
+
+            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                log(LogLevel.ERROR, "P2P connection failure", t.message)
+                handleConnectionFailure(t)
+            }
+        })
+    }
+
     fun connect() {
         if (_connectionState.value == ConnectionState.CONNECTED || 
             _connectionState.value == ConnectionState.CONNECTING) {

@@ -48,6 +48,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton as MaterialIconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -336,7 +337,28 @@ fun ListenTogetherScreen(
                 }
             }
         } else {
-            
+            item {
+                P2PPartnerSection(
+                    username = usernameInput.ifBlank { savedUsername }.ifBlank { "Partner" }
+                )
+            }
+
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                ) {
+                    HorizontalDivider(modifier = Modifier.weight(1f))
+                    Text(
+                        text = " OR CLOUD ROOM ",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    HorizontalDivider(modifier = Modifier.weight(1f))
+                }
+            }
+
             item {
                 JoinCreateRoomSection(
                     usernameInput = usernameInput,

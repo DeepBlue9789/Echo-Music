@@ -654,10 +654,24 @@
     <string name="join_existing_room">Join existing room</string>
     <string name="room_code">Room code</string>
     <string name="leave_room">Leave room</string>
-    <string name="join_room">Join</string>
     <string name="create_room">Create</string>
+    <string name="join_room">Join</string>
     <string name="joining_room">Joining room %s…</string>
     <string name="creating_room">Creating room…</string>
+    <string name="p2p_partner_mesh">Tailscale / P2P Partner Mesh</string>
+    <string name="p2p_partner_mesh_desc">Connect directly to partner device over Tailscale or local network</string>
+    <string name="p2p_connect_partner">Connect with Partner</string>
+    <string name="p2p_host_session">Host P2P Session</string>
+    <string name="p2p_partner_ip_hint">Partner Tailscale IP / Hostname</string>
+    <string name="p2p_your_ips">Your Tailscale / Local IPs</string>
+    <string name="p2p_discovered_peers">Nearby Echo Partner Devices</string>
+    <string name="p2p_no_peers_found">Scanning for nearby Echo partners…</string>
+    <string name="p2p_server_running">Local P2P server active on port %d</string>
+    <string name="p2p_mode_cloud">Cloud Server</string>
+    <string name="p2p_mode_p2p">Tailscale / P2P</string>
+    <string name="p2p_partner_connected">Connected to Partner Mesh</string>
+    <string name="p2p_disconnect">Disconnect P2P</string>
+
     <string name="connect">Connect</string>
     <string name="disconnect">Disconnect</string>
     <string name="reconnect">Reconnect</string>

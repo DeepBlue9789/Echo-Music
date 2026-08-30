@@ -1,0 +1,44 @@
+name: Sync with Upstream
+
+on:
+  schedule:
+    # Run daily at midnight UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Allows manual trigger
+
+jobs:
+  sync:
+    name: Sync with Official Echo Music Upstream
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Fork
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add Upstream Remote
+        run: |
+          git remote add upstream https://github.com/EchoMusicApp/Echo-Music.git
+          git fetch upstream main
+
+      - name: Merge Upstream into Fork
+        run: |
+          echo "Merging upstream/main into fork main..."
+          git merge upstream/main --no-edit -m "Merge upstream changes into fork" || {
+            echo "Conflict detected during merge. Please resolve manually."
+            exit 1
+          }
+
+      - name: Push to Fork Origin
+        run: |
+          git push origin main

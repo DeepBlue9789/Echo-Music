@@ -141,5 +141,7 @@ object AppModule {
     fun provideListenTogetherManager(
         @ApplicationContext context: Context,
         client: ListenTogetherClient,
-    ): ListenTogetherManager = ListenTogetherManager(client, context)
+        p2pPartnerManager: com.music.echo.p2p.P2PPartnerManager
+    ): ListenTogetherManager = ListenTogetherManager(client, p2pPartnerManager, context)
 }
+
