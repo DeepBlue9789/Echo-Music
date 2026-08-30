@@ -577,67 +577,11 @@ class MainActivity : ComponentActivity() {
 
 
         if (showUpdateDialog) {
-            AlertDialog(
-                onDismissRequest = { showUpdateDialog = false },
-                title = { Text(stringResource(R.string.update_available_title)) },
-                text = {
-                    Column(modifier = Modifier.fillMaxWidth()) {
-                        Text("Version $availableUpdateVersion is available. Update now?")
-                        if (availableUpdateChangelog.isNotEmpty() || !availableUpdateDescription.isNullOrEmpty()) {
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Text(
-                                text = stringResource(R.string.changelog),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f, fill = false)
-                                    .verticalScroll(rememberScrollState())
-                            ) {
-                                if (availableUpdateChangelog.isNotEmpty()) {
-                                    availableUpdateChangelog.forEach { section ->
-                                        Text(
-                                            text = section.title,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                                        )
-                                        section.items.forEach { item ->
-                                            Text(
-                                                text = "• $item",
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                modifier = Modifier.padding(start = 8.dp, bottom = 2.dp)
-                                            )
-                                        }
-                                    }
-                                } else if (!availableUpdateDescription.isNullOrEmpty()) {
-                                    Text(
-                                        text = availableUpdateDescription!!,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(onClick = {
-                        showUpdateDialog = false
-                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://echomusic.fun"))
-                        context.startActivity(intent)
-                    }) {
-                        Text("Update")
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { showUpdateDialog = false }) {
-                        Text("Next time")
-                    }
-                }
+            echo.music.iad1tya.echomusic.component.UpdateAvailableDialog(
+                version = availableUpdateVersion,
+                changelog = availableUpdateChangelog,
+                description = availableUpdateDescription,
+                onDismiss = { showUpdateDialog = false }
             )
         }
             BoxWithConstraints(
