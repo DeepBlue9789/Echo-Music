@@ -77,16 +77,7 @@ fun SettingDialoge(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Header
-            Text(
-                text = "Echo Music",
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp
-                ),
-                color = primaryColor,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-            )
+            // Removed Echo Music text
 
             // Account Group
             Material3SettingsGroup(

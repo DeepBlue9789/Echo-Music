@@ -227,6 +227,7 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
             SearchableSetting(stringResource(R.string.playback_logs), stringResource(R.string.playback_logs_desc), "Content", "settings/content"),
             SearchableSetting(stringResource(R.string.player), stringResource(R.string.player_desc), "Player and audio", "settings/player"),
             SearchableSetting(stringResource(R.string.player_and_audio), stringResource(R.string.player_and_audio_desc), "Player and audio", "settings/player"),
+            SearchableSetting("Playback Engine", null, "Player and audio", "settings/player"),
             SearchableSetting(stringResource(R.string.player_background_blur), stringResource(R.string.player_background_blur_desc), "Appearance", "settings/appearance"),
             SearchableSetting(stringResource(R.string.player_background_style), stringResource(R.string.player_background_style_desc), "Appearance", "settings/appearance"),
             SearchableSetting(stringResource(R.string.player_buttons_style), stringResource(R.string.player_buttons_style_desc), "Appearance", "settings/appearance"),

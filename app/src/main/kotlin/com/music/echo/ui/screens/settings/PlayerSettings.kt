@@ -464,6 +464,7 @@ highlightKey: String? = null) {
                                     showCrossfadeBetaDialog = true
                                 } else {
                                     onCrossfadeEnabledChange(false)
+                                    onAutomixCrossfadeChange(false)
                                 }
                             },
                             thumbContent = {
@@ -482,6 +483,7 @@ highlightKey: String? = null) {
                             showCrossfadeBetaDialog = true
                         } else {
                             onCrossfadeEnabledChange(false)
+                            onAutomixCrossfadeChange(false)
                         }
                     }
                 ))
@@ -524,19 +526,59 @@ highlightKey: String? = null) {
                         },
                         onClick = { onCrossfadeGaplessChange(!crossfadeGapless) }
                     ))
+                }
+                
+                add(Material3SettingsItem(
+                    isHighlighted = highlightKey == stringResource(R.string.automix),
+                    icon = painterResource(R.drawable.graphic_eq),
+                    title = { Text(stringResource(R.string.automix)) },
+                    description = { Text(stringResource(R.string.automix_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = automixCrossfade,
+                            onCheckedChange = {
+                                onAutomixCrossfadeChange(it)
+                                if (it) {
+                                    onCrossfadeEnabledChange(true)
+                                } else {
+                                    onCrossfadeEnabledChange(false)
+                                }
+                            },
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (automixCrossfade) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = {
+                        val newValue = !automixCrossfade
+                        onAutomixCrossfadeChange(newValue)
+                        if (newValue) {
+                            onCrossfadeEnabledChange(true)
+                        } else {
+                            onCrossfadeEnabledChange(false)
+                        }
+                    }
+                ))
+                if (automixCrossfade) {
                     add(Material3SettingsItem(
-                        isHighlighted = highlightKey == stringResource(R.string.automix),
-                        icon = painterResource(R.drawable.graphic_eq),
-                        title = { Text(stringResource(R.string.automix)) },
-                        description = { Text(stringResource(R.string.automix_desc)) },
+                        isHighlighted = highlightKey == stringResource(R.string.automix_debug),
+                        icon = painterResource(R.drawable.bug_report),
+                        title = { Text(stringResource(R.string.automix_debug)) },
+                        description = { Text(stringResource(R.string.automix_debug_desc)) },
                         trailingContent = {
                             Switch(
-                                checked = automixCrossfade,
-                                onCheckedChange = onAutomixCrossfadeChange,
+                                checked = automixDebugOverlay,
+                                onCheckedChange = onAutomixDebugOverlayChange,
                                 thumbContent = {
                                     Icon(
                                         painter = painterResource(
-                                            id = if (automixCrossfade) R.drawable.check else R.drawable.close
+                                            id = if (automixDebugOverlay) R.drawable.check else R.drawable.close
                                         ),
                                         contentDescription = null,
                                         modifier = Modifier.size(SwitchDefaults.IconSize)
@@ -544,33 +586,10 @@ highlightKey: String? = null) {
                                 }
                             )
                         },
-                        onClick = { onAutomixCrossfadeChange(!automixCrossfade) }
+                        onClick = { onAutomixDebugOverlayChange(!automixDebugOverlay) }
                     ))
-                    if (automixCrossfade) {
-                        add(Material3SettingsItem(
-                            isHighlighted = highlightKey == stringResource(R.string.automix_debug),
-                            icon = painterResource(R.drawable.bug_report),
-                            title = { Text(stringResource(R.string.automix_debug)) },
-                            description = { Text(stringResource(R.string.automix_debug_desc)) },
-                            trailingContent = {
-                                Switch(
-                                    checked = automixDebugOverlay,
-                                    onCheckedChange = onAutomixDebugOverlayChange,
-                                    thumbContent = {
-                                        Icon(
-                                            painter = painterResource(
-                                                id = if (automixDebugOverlay) R.drawable.check else R.drawable.close
-                                            ),
-                                            contentDescription = null,
-                                            modifier = Modifier.size(SwitchDefaults.IconSize)
-                                        )
-                                    }
-                                )
-                            },
-                            onClick = { onAutomixDebugOverlayChange(!automixDebugOverlay) }
-                        ))
-                    }
                 }
+                
                 add(Material3SettingsItem(
     isHighlighted = (highlightKey == stringResource(R.string.history_duration)),
                     icon = painterResource(R.drawable.history),
