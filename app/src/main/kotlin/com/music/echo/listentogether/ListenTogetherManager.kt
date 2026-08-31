@@ -114,6 +114,10 @@ class ListenTogetherManager @Inject constructor(
     
     private var bufferCompleteReceivedForTrack: String? = null
 
+    private fun normalizeTrackId(id: String?): String {
+        return id?.substringAfterLast("/")?.trim() ?: ""
+    }
+
     // -----------------------------------------------------------------
     // Virtual Timeline Model & Synchronization State
     // Position(t) = p_ref + r * (t - t_ref)
@@ -297,11 +301,15 @@ class ListenTogetherManager @Inject constructor(
             try {
                 if (!isInRoom) return
                 val connection = playerConnection ?: return
-                val currentTrackId = connection.player.currentMediaItem?.mediaId ?: return
+                val rawMediaId = connection.player.currentMediaItem?.mediaId ?: return
+                val currentTrackId = normalizeTrackId(rawMediaId)
+                if (currentTrackId.isEmpty()) return
 
                 if (playbackState == Player.STATE_READY) {
                     applyPendingSyncIfReady()
-                    if (bufferCompleteReceivedForTrack == currentTrackId) {
+                    val normComplete = normalizeTrackId(bufferCompleteReceivedForTrack)
+                    val normBuffering = normalizeTrackId(bufferingTrackId)
+                    if (normComplete.isNotEmpty() && normComplete == currentTrackId) {
                         Timber.tag(TAG).d("Buffer complete already received for track $currentTrackId, resuming playback on STATE_READY")
                         bufferCompleteReceivedForTrack = null
                         isWaitingForPeersBuffer = false
@@ -313,14 +321,18 @@ class ListenTogetherManager @Inject constructor(
                             delay(250)
                             isSyncing = false
                         }
-                    } else if (bufferingTrackId == currentTrackId || isWaitingForPeersBuffer) {
+                    } else if (normBuffering == currentTrackId || isWaitingForPeersBuffer) {
                         Timber.tag(TAG).d("Local playback STATE_READY for track $currentTrackId")
                         client.sendBufferReady(currentTrackId)
                         client.sendBufferReadyEvent(5.0)
                     }
                 } else if (playbackState == Player.STATE_BUFFERING) {
+                    val now = SystemClock.elapsedRealtime()
+                    if (now < resumeGracePeriodUntil || isSyncing || isApplyingRemoteState) {
+                        return
+                    }
                     val otherUsersCount = (roomState.value?.users?.size ?: 1) - 1
-                    if (otherUsersCount > 0 && !isSyncing && !isWaitingForPeersBuffer && bufferingTrackId == null && lastSyncedIsPlaying == true) {
+                    if (otherUsersCount > 0 && !isWaitingForPeersBuffer && bufferingTrackId == null && lastSyncedIsPlaying == true) {
                         Timber.tag(TAG).d("Mid-song buffering on this device, notifying peers")
                         bufferingTrackId = currentTrackId
                         client.sendBufferWait(currentTrackId)
@@ -1301,11 +1313,17 @@ class ListenTogetherManager @Inject constructor(
         lastAppliedSeqId = payload.seqId
         timelineRefPosSec = payload.targetPosition
 
-        if (isHost) {
-            return
-        }
-
         val targetMs = (payload.targetPosition * 1000.0).toLong()
+        val player = playerConnection?.player ?: return
+
+        // Set grace period to prevent drift correction while the player seeks and stabilizes
+        resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 3500L
+        consecutiveHardDriftTicks = 0
+
+        // If local player is already at the target position (e.g. the user who dragged the seek bar locally),
+        // we do NOT seek again to prevent decoder flushes and audio stutter!
+        val currentPos = player.currentPosition
+        val alreadyAtTarget = kotlin.math.abs(currentPos - targetMs) < 800L
 
         if (payload.autoPlay && payload.executeAt != null) {
             timelineRefTime = payload.executeAt
@@ -1319,10 +1337,17 @@ class ListenTogetherManager @Inject constructor(
                 isSyncing = true
                 try {
                     val connection = playerConnection ?: return@launch
-                    connection.player.seekTo(targetMs)
+                    if (!alreadyAtTarget) {
+                        Timber.tag(TAG).d("handleSeekCommand: seeking player to $targetMs (was at $currentPos)")
+                        connection.player.seekTo(targetMs)
+                    } else {
+                        Timber.tag(TAG).d("handleSeekCommand: player already at target ($currentPos approx $targetMs), skipping seekTo")
+                    }
                     if (delayMs > 0) delay(delayMs)
-                    connection.play()
-                    delay(150)
+                    if (!connection.player.isPlaying) {
+                        connection.play()
+                    }
+                    delay(200)
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Error executing seek command")
                 } finally {
@@ -1333,15 +1358,19 @@ class ListenTogetherManager @Inject constructor(
         } else {
             timelineRefTime = System.currentTimeMillis()
             timelineRate = 0.0
-            isApplyingRemoteState = true
-            isSyncing = true
             scope.launch(Dispatchers.Main) {
+                isApplyingRemoteState = true
+                isSyncing = true
                 try {
-                    playerConnection?.let {
-                        it.player.seekTo(targetMs)
-                        it.pause()
-                        delay(150)
+                    val connection = playerConnection ?: return@launch
+                    if (!alreadyAtTarget) {
+                        Timber.tag(TAG).d("handleSeekCommand: seeking player to $targetMs (was at $currentPos)")
+                        connection.player.seekTo(targetMs)
+                    } else {
+                        Timber.tag(TAG).d("handleSeekCommand: player already at target ($currentPos approx $targetMs), skipping seekTo")
                     }
+                    connection.pause()
+                    delay(200)
                 } catch (e: Exception) {
                     Timber.tag(TAG).e(e, "Error executing seek command")
                 } finally {
@@ -1543,21 +1572,9 @@ class ListenTogetherManager @Inject constructor(
                 }
 
                 PlaybackActions.SEEK -> {
-                    val pos = action.position ?: 0L
-                    val now = System.currentTimeMillis()
-                    
-                    if (now - lastSyncActionTime < SYNC_DEBOUNCE_THRESHOLD_MS) {
-                        Timber.tag(TAG).d("Guest: SEEK debounced (only ${now - lastSyncActionTime}ms since last sync)")
-                        return
-                    }
-                    
-                    if (kotlin.math.abs(player.currentPosition - pos) > POSITION_TOLERANCE_MS) {
-                        Timber.tag(TAG).d("Guest: SEEK to $pos from ${player.currentPosition} (diff > ${POSITION_TOLERANCE_MS}ms)")
-                        connection.seekTo(pos)
-                        lastSyncActionTime = now
-                    } else {
-                        Timber.tag(TAG).d("Guest: SEEK ignored (position diff < ${POSITION_TOLERANCE_MS}ms)")
-                    }
+                    // Under Server-Authoritative Virtual Timeline, SEEK is managed authoritatively by SEEK_COMMAND
+                    Timber.tag(TAG).d("Partner: SEEK in SYNC_PLAYBACK received (managed authoritatively by SEEK_COMMAND)")
+                    return
                 }
                 
                 PlaybackActions.CHANGE_TRACK -> {
@@ -1886,16 +1903,26 @@ class ListenTogetherManager @Inject constructor(
                     bufferingTrackId = null
                     bufferCompleteReceivedForTrack = null
                 } else {
-                    
-                    connection.pause()
-                    pendingSyncState = SyncStatePayload(
-                        currentTrack = currentTrack,
-                        isPlaying = isPlaying,
-                        position = position,
-                        lastUpdate = System.currentTimeMillis()
-                    )
-                    applyPendingSyncIfReady()
-                    client.sendBufferReady(currentTrack.id)
+                    val normCurrent = normalizeTrackId(currentTrack.id)
+                    val normComplete = normalizeTrackId(bufferCompleteReceivedForTrack)
+                    if (normComplete.isNotEmpty() && normComplete == normCurrent) {
+                        Timber.tag(TAG).d("BufferComplete already received for track ${currentTrack.id}, starting playback directly")
+                        bufferCompleteReceivedForTrack = null
+                        isWaitingForPeersBuffer = false
+                        bufferingTrackId = null
+                        connection.play()
+                        lastSyncedIsPlaying = true
+                    } else {
+                        connection.pause()
+                        pendingSyncState = SyncStatePayload(
+                            currentTrack = currentTrack,
+                            isPlaying = isPlaying,
+                            position = position,
+                            lastUpdate = System.currentTimeMillis()
+                        )
+                        applyPendingSyncIfReady()
+                        client.sendBufferReady(currentTrack.id)
+                    }
                 }
                 
             } catch (e: Exception) {

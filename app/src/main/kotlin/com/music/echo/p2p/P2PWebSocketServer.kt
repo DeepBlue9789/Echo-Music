@@ -573,14 +573,15 @@ class P2PWebSocketServer(
         serverBarrierJob?.cancel()
         val targetTime = System.currentTimeMillis() + 250L
         val nextSeq = ++currentSeqId
+        val resumePosSec = virtualTimelineRefPos.coerceAtLeast(0.0)
         virtualTimelineRefTime = targetTime
-        virtualTimelineRefPos = 0.0
+        virtualTimelineRefPos = resumePosSec
         virtualTimelineRate = 1.0
 
         val nextVersion = ++currentVersion
         _roomState.value = _roomState.value.copy(
             isPlaying = true,
-            position = 0L,
+            position = (resumePosSec * 1000.0).toLong(),
             lastUpdate = targetTime,
             stateVersion = nextVersion
         )
@@ -588,11 +589,12 @@ class P2PWebSocketServer(
         val playCmd = PlayScheduledPayload(
             seqId = nextSeq,
             executeAt = targetTime,
-            startPosition = 0.0
+            startPosition = resumePosSec
         )
         broadcastMessage(MessageTypes.PLAY_SCHEDULED, playCmd)
         broadcastMessage(MessageTypes.BUFFER_COMPLETE, BufferCompletePayload(trackId))
         bufferedUserIds.clear()
+        currentBufferingTrackId = null
     }
 
     private fun handleBufferReady(userId: String, trackId: String) {
