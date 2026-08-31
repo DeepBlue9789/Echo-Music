@@ -245,12 +245,26 @@ class ListenTogetherManager @Inject constructor(
                 if (currentMeta != null && currentMeta.id == trackId) {
                     if (trackId != lastSyncedTrackId) {
                         lastSyncedTrackId = trackId
-                        Timber.tag(TAG).d("Host sending track change on transition: ${currentMeta.title}")
+                        Timber.tag(TAG).d("Host sending track change on transition (reason=$reason): ${currentMeta.title}")
                         sendTrackChangeInternal(currentMeta)
                         
+                        val isAutoTransition = (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
                         val otherUsersCount = (roomState.value?.users?.size ?: 1) - 1
-                        if (otherUsersCount > 0) {
-                            Timber.tag(TAG).d("Cooperative buffer barrier: pausing host until all peers buffer track $trackId")
+                        
+                        if (isAutoTransition) {
+                            // On natural auto-transition, ExoPlayer has already pre-buffered the next track gaplessly.
+                            // NEVER pause the host! Keep playing seamlessly!
+                            Timber.tag(TAG).d("Seamless auto-transition: continuing gapless playback without pausing host")
+                            isWaitingForPeersBuffer = false
+                            bufferingTrackId = null
+                            lastSyncedIsPlaying = true
+                            timelineRefPosSec = 0.0
+                            timelineRate = 1.0
+                            timelineRefTime = System.currentTimeMillis()
+                            resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
+                            client.sendBufferReady(trackId)
+                        } else if (otherUsersCount > 0) {
+                            Timber.tag(TAG).d("Manual track jump: pausing host until all peers buffer track $trackId")
                             isWaitingForPeersBuffer = true
                             bufferingTrackId = trackId
                             isSyncing = true
@@ -1575,11 +1589,28 @@ class ListenTogetherManager @Inject constructor(
                     action.trackInfo?.let { track ->
                         Timber.tag(TAG).d("Partner: CHANGE_TRACK to ${track.title}, queue size=${action.queue?.size}")
                         
+                        lastSyncActionTime = 0L
+                        val currentLocalTrackId = normalizeTrackId(player.currentMediaItem?.mediaId)
+                        val incomingTrackId = normalizeTrackId(track.id)
+                        
+                        if (currentLocalTrackId.isNotEmpty() && currentLocalTrackId == incomingTrackId && player.isPlaying) {
+                            // Guest has already seamlessly transitioned to this track via ExoPlayer queue!
+                            Timber.tag(TAG).d("Guest: Already playing track ${track.title} gaplessly, skipping queue reload and seek")
+                            lastSyncedTrackId = track.id
+                            lastSyncedIsPlaying = true
+                            bufferingTrackId = null
+                            isWaitingForPeersBuffer = false
+                            timelineRefPosSec = (player.currentPosition / 1000.0)
+                            timelineRate = 1.0
+                            timelineRefTime = System.currentTimeMillis()
+                            resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
+                            return
+                        }
+
                         timelineRefPosSec = 0.0
                         timelineRate = 0.0
                         timelineRefTime = System.currentTimeMillis()
                         resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
-                        lastSyncActionTime = 0L
                         
                         if (action.queue != null && action.queue.isNotEmpty()) {
                             val queueTitle = action.queueTitle
