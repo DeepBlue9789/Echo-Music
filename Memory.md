@@ -156,5 +156,21 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 | **Upstream Sync Workflow** | `.github/workflows/sync-upstream.yml` |
 | **Release Build Workflow** | `.github/workflows/build-release.yml` |
 | **Gradle Properties & Toolchain Paths** | `gradle.properties` |
-| **App Build Configuration & Signing** | `app/build.gradle.kts` |
 | **Lint Rules & ExtraTranslation Ignored** | `app/lint.xml` |
+
+---
+
+## 7. Seek & Track Transition Synchronization Hardening
+
+### A. Seek Command Authority & Ping-Pong Elimination
+- **Exclusive Authority**: Raw `PlaybackActions.SEEK` in `handlePlaybackSync` is ignored. Seeks are processed exclusively and authoritatively through `SEEK_COMMAND`.
+- **Symmetric Host/Guest Execution**: Removed `if (isHost) return` in `handleSeekCommand`. Both Host and Guest honor incoming seek commands.
+- **Local-Echo Suppression**: If `abs(player.currentPosition - targetMs) < 800L`, the device that initiated the seek locally skips redundant `player.seekTo(targetMs)` calls, eliminating ExoPlayer audio decoder flushes.
+- **Seek Grace Period**: `resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 3500L` is set on every seek to prevent the 250ms drift evaluator from misinterpreting decoder buffering as drift.
+
+### B. Track Transition Loop & Buffer Barrier Fix
+- **Track ID Normalization**: Added `normalizeTrackId(id)` (`id.substringAfterLast("/")`) across all event handlers, preventing false mismatches between prefix-formatted ExoPlayer media IDs and clean track IDs.
+- **Position Preservation in Barrier Release**: `releaseBufferBarrier` in `P2PWebSocketServer.kt` preserves `virtualTimelineRefPos` (`resumePosSec = virtualTimelineRefPos.coerceAtLeast(0.0)`) instead of hardcoding `0.0`.
+- **Single-Shot Barrier Guard**: `if (currentBufferingTrackId == null) return` prevents repeated barrier firing loops on track changes.
+- **Immediate Playback on Pending BufferComplete**: If a device finishes preparing a track and finds `bufferCompleteReceivedForTrack` already set, it plays immediately without pausing.
+- **Transient Buffering Suppression**: `onPlaybackStateChanged` suppresses `BUFFER_WAIT` if `now < resumeGracePeriodUntil`, preventing normal seek or track preparation buffering from triggering unnecessary room stalls.
