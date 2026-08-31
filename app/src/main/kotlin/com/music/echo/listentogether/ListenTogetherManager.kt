@@ -1113,7 +1113,7 @@ class ListenTogetherManager @Inject constructor(
 
     private var consecutiveHardDriftTicks = 0
     private var lastHardSeekTimestamp = 0L
-    private var resumeGracePeriodUntil = 0L
+    @Volatile private var resumeGracePeriodUntil = 0L
 
     private fun evaluateDriftAndCorrect() {
         // Host is master audio source: never seek or slew host playback!
@@ -1317,8 +1317,10 @@ class ListenTogetherManager @Inject constructor(
         val player = playerConnection?.player ?: return
 
         // Set grace period to prevent drift correction while the player seeks and stabilizes
-        resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 3500L
+        resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
         consecutiveHardDriftTicks = 0
+        isApplyingRemoteState = true
+        isSyncing = true
 
         // If local player is already at the target position (e.g. the user who dragged the seek bar locally),
         // we do NOT seek again to prevent decoder flushes and audio stutter!
@@ -1333,8 +1335,6 @@ class ListenTogetherManager @Inject constructor(
             val delayMs = if (rawDelay in 0L..1000L) rawDelay else 0L
             scheduledPlayJob?.cancel()
             scheduledPlayJob = scope.launch(Dispatchers.Main) {
-                isApplyingRemoteState = true
-                isSyncing = true
                 try {
                     val connection = playerConnection ?: return@launch
                     if (!alreadyAtTarget) {
@@ -1581,6 +1581,10 @@ class ListenTogetherManager @Inject constructor(
                     action.trackInfo?.let { track ->
                         Timber.tag(TAG).d("Partner: CHANGE_TRACK to ${track.title}, queue size=${action.queue?.size}")
                         
+                        timelineRefPosSec = 0.0
+                        timelineRate = 0.0
+                        timelineRefTime = System.currentTimeMillis()
+                        resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
                         lastSyncActionTime = 0L
                         
                         if (action.queue != null && action.queue.isNotEmpty()) {
@@ -2143,6 +2147,11 @@ class ListenTogetherManager @Inject constructor(
     
     private fun sendTrackChangeInternal(metadata: MediaMetadata) {
         if (!canControlMusic) return
+        
+        timelineRefPosSec = 0.0
+        timelineRate = 0.0
+        timelineRefTime = System.currentTimeMillis()
+        resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
         
         
         val durationMs = if (metadata.duration > 0) metadata.duration.toLong() * 1000 else 180000L

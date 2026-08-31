@@ -492,6 +492,11 @@ class P2PWebSocketServer(
                 bufferedUserIds.clear()
                 senderUserId?.let { bufferedUserIds.add(it) }
 
+                // CRITICAL: Reset virtual timeline to 0.0 for the new song!
+                virtualTimelineRefPos = 0.0
+                virtualTimelineRefTime = System.currentTimeMillis()
+                virtualTimelineRate = 0.0
+
                 _roomState.value = currentState.copy(
                     currentTrack = action.trackInfo,
                     isPlaying = false,
