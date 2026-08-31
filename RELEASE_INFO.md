@@ -23,3 +23,14 @@
 We have completely removed lossless music streaming, downloads, and tracking features. Maintaining the lossless music database is expensive and quite difficult. Soon, the entire lossless database will be archived from GitHub as well. 
 
 We tried our best to maintain it, and while many of you have asked us to use a free cloud service instead, the process requires automation (where a user can upload a track and it gets added automatically). Doing this manually for every track simply isn't viable. Thank you for understanding.
+
+
+## 📋 Pull Request & Release Note Guidelines
+
+**ATTENTION CONTRIBUTORS:** To maintain a clean and standardized changelog, all community contributions added to this file MUST strictly follow this format:
+
+`- \`<type>(<scope>): <summary>\` ([#PR_NUMBER](URL)) by @username`
+
+- **PR Titles** must follow [Conventional Commits](https://www.conventionalcommits.org/).
+- **Descriptions** must be clear, concise, and professional.
+- PRs that do not follow this strict formatting will **not** be merged.
