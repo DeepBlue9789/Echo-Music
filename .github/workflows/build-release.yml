@@ -10,6 +10,12 @@ on:
         description: 'Release Tag (e.g. v1.2.3)'
         required: true
         default: 'v1.2.3'
+  workflow_call:
+    inputs:
+      tag_name:
+        description: 'Release Tag (e.g. v1.2.3)'
+        required: true
+        type: string
 
 jobs:
   build:
@@ -38,7 +44,9 @@ jobs:
       - name: Determine Release Tag
         id: release_tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          if [ -n "${{ inputs.tag_name }}" ]; then
+            TAG="${{ inputs.tag_name }}"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             TAG="${{ github.event.inputs.tag_name }}"
           else
             TAG="${{ github.ref_name }}"

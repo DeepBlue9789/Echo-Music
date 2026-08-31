@@ -12,12 +12,15 @@ on:
         default: false
 
 jobs:
-  sync-and-release:
-    name: Sync Upstream and Trigger Release
+  sync:
+    name: Sync Upstream Changes
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: write
+
+    outputs:
+      new_release_needed: ${{ steps.check_upstream.outputs.new_release_needed }}
+      target_tag: ${{ steps.determine_tag.outputs.target_tag }}
 
     steps:
       - name: Checkout Fork
@@ -45,16 +48,13 @@ jobs:
           echo "Local HEAD: $LOCAL_HASH"
           echo "Upstream HEAD: $UPSTREAM_HASH"
           
-          # Check if upstream has commits not in local
           COMMITS_BEHIND=$(git rev-list --count HEAD..upstream/main)
           echo "Commits behind upstream: $COMMITS_BEHIND"
           
-          # Check upstream latest release tag
-          UPSTREAM_LATEST_TAG=$(curl -s https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+          UPSTREAM_LATEST_TAG=$(curl -s https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
           echo "Upstream latest release tag: $UPSTREAM_LATEST_TAG"
           
-          # Check our latest release tag
-          FORK_LATEST_TAG=$(curl -s https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+          FORK_LATEST_TAG=$(curl -s https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
           echo "Fork latest release tag: $FORK_LATEST_TAG"
           
           HAS_NEW_COMMITS=false
@@ -63,7 +63,7 @@ jobs:
           fi
           
           NEW_RELEASE_NEEDED=false
-          if [ "$HAS_NEW_COMMITS" = "true" ] || [ "${{ github.event.inputs.force_release }}" = "true" ] || [ "$UPSTREAM_LATEST_TAG" != "$FORK_LATEST_TAG" ]; then
+          if [ "$HAS_NEW_COMMITS" = "true" ] || [ "${{ github.event.inputs.force_release }}" = "true" ] || ([ -n "$UPSTREAM_LATEST_TAG" ] && [ "$UPSTREAM_LATEST_TAG" != "$FORK_LATEST_TAG" ]); then
             NEW_RELEASE_NEEDED=true
           fi
           
@@ -77,24 +77,33 @@ jobs:
           echo "Merging upstream/main into fork main..."
           git merge upstream/main --no-edit -m "Sync upstream Echo-Music changes into fork" || {
             echo "Conflict detected during merge. Resolving with fork preference for conflicting files..."
-            # In case of conflicts, favor fork customizations
             git checkout --ours .
             git add -A
             git commit -m "Resolve merge conflicts prioritizing fork ListenTogether features"
           }
           git push origin main
 
-      - name: Create and Push New Release Tag
+      - name: Determine Target Release Tag
+        id: determine_tag
         if: steps.check_upstream.outputs.new_release_needed == 'true'
         run: |
           VERSION=$(grep "versionName" app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           TARGET_TAG="v${VERSION}"
           
-          # If tag already exists on origin, append timestamp/build suffix
+          # If this tag already exists on fork, append timestamp
           if git rev-parse "$TARGET_TAG" >/dev/null 2>&1; then
             TARGET_TAG="v${VERSION}-$(date +'%Y%m%d%H%M')"
           fi
           
-          echo "Creating new release tag: $TARGET_TAG"
+          echo "Target Release Tag: $TARGET_TAG"
+          echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
           git tag "$TARGET_TAG"
-          git push origin "$TARGET_TAG"
+          git push origin "$TARGET_TAG" || echo "Tag push skipped or already exists"
+
+  release:
+    name: Trigger Release Build
+    needs: sync
+    if: needs.sync.outputs.new_release_needed == 'true'
+    uses: ./.github/workflows/build-release.yml
+    with:
+      tag_name: ${{ needs.sync.outputs.target_tag }}
