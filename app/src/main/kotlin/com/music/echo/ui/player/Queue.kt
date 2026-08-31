@@ -45,6 +45,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -79,6 +81,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -118,6 +121,8 @@ import echo.music.iad1tya.constants.PlayerBackgroundStyle
 import echo.music.iad1tya.constants.QueueEditLockKey
 import echo.music.iad1tya.constants.ShowCommentButtonKey
 import echo.music.iad1tya.constants.UseNewPlayerDesignKey
+import echo.music.iad1tya.constants.ListenTogetherFloatingChatBubbleKey
+import echo.music.iad1tya.ui.component.FloatingChatBubble
 import echo.music.iad1tya.extensions.metadata
 import echo.music.iad1tya.extensions.move
 import echo.music.iad1tya.extensions.toggleRepeatMode
@@ -280,6 +285,16 @@ fun Queue(
         ShowCommentButtonKey,
         defaultValue = false
     )
+    val ltRoomState by listenTogetherManager?.roomState?.collectAsState() ?: remember { mutableStateOf(null) }
+    val ltMessages by listenTogetherManager?.chatMessages?.collectAsState() ?: remember { mutableStateOf(emptyList()) }
+    val ltUserId by listenTogetherManager?.userId?.collectAsState() ?: remember { mutableStateOf("") }
+    val isLtConnected = ltRoomState != null
+    val (ltBubbleEnabled) = rememberPreference(ListenTogetherFloatingChatBubbleKey, true)
+    var showLtChatModal by rememberSaveable { mutableStateOf(false) }
+    // Count unread LT messages (from others)
+    val ltUserMessages = remember(ltMessages) { ltMessages.filter { it.userId != "SYSTEM" && it.userId != ltUserId } }
+    var ltLastReadCount by rememberSaveable { mutableIntStateOf(0) }
+    val ltUnreadCount = (ltUserMessages.size - ltLastReadCount).coerceAtLeast(0)
 
     val snackbarHostState = remember { SnackbarHostState() }
     var dismissJob: Job? by remember { mutableStateOf(null) }
@@ -403,6 +418,42 @@ fun Queue(
                             textBackgroundColor = TextBackgroundColor,
                             playerBackground = playerBackground
                         )
+                    }
+
+                    // Listen Together chat button — visible when connected and bubble is disabled
+                    if (isLtConnected && !ltBubbleEnabled) {
+                        BadgedBox(
+                            badge = {
+                                if (ltUnreadCount > 0) {
+                                    Badge(
+                                        containerColor = MaterialTheme.colorScheme.error,
+                                        contentColor = MaterialTheme.colorScheme.onError
+                                    ) {
+                                        Text(
+                                            text = if (ltUnreadCount > 99) "99+" else ltUnreadCount.toString(),
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier.size(buttonSize)
+                        ) {
+                            PlayerQueueButton(
+                                icon = R.drawable.chat_msg,
+                                onClick = {
+                                    showLtChatModal = true
+                                    ltLastReadCount = ltUserMessages.size
+                                },
+                                isActive = showLtChatModal,
+                                shape = middleShape,
+                                modifier = Modifier.fillMaxSize(),
+                                textButtonColor = textButtonColor,
+                                iconButtonColor = iconButtonColor,
+                                iconSize = iconSize,
+                                textBackgroundColor = TextBackgroundColor,
+                                playerBackground = playerBackground
+                            )
+                        }
                     }
 
                     val shuffleModeEnabledInside by playerConnection.shuffleModeEnabled.collectAsState()
@@ -1416,6 +1467,15 @@ fun Queue(
         CommentSheet(
             videoId = mediaMetadata?.id ?: "",
             onDismiss = { showCommentSheet = false }
+        )
+    }
+
+    // Listen Together chat modal (opened via player chat button when bubble is disabled)
+    if (showLtChatModal && isLtConnected) {
+        FloatingChatBubble(
+            navController = navController,
+            forceExpanded = true,
+            onDismiss = { showLtChatModal = false }
         )
     }
 }

@@ -262,6 +262,15 @@ class MessageCodec(
             MessageTypes.SUGGESTION_REJECTED -> json.decodeFromString<SuggestionRejectedPayload>(payloadString)
             MessageTypes.CHAT -> json.decodeFromString<ChatMessagePayload>(payloadString)
             MessageTypes.ROOM_SETTINGS_CHANGED -> json.decodeFromString<UpdateRoomSettingsPayload>(payloadString)
+            MessageTypes.PONG -> try { json.decodeFromString<PongPayload>(payloadString) } catch (e: Exception) { null }
+            MessageTypes.CLOCK_SYNC_REQ -> json.decodeFromString<ClockSyncRequestPayload>(payloadString)
+            MessageTypes.CLOCK_SYNC_RES -> json.decodeFromString<ClockSyncResponsePayload>(payloadString)
+            MessageTypes.PLAY_SCHEDULED -> json.decodeFromString<PlayScheduledPayload>(payloadString)
+            MessageTypes.PAUSE_COMMAND -> json.decodeFromString<PauseCommandPayload>(payloadString)
+            MessageTypes.SEEK_COMMAND -> json.decodeFromString<SeekCommandPayload>(payloadString)
+            MessageTypes.BUFFER_LOCK -> json.decodeFromString<BufferLockPayload>(payloadString)
+            MessageTypes.BUFFER_READY_EVENT -> json.decodeFromString<BufferReadyEventPayload>(payloadString)
+            MessageTypes.SESSION_SNAPSHOT -> json.decodeFromString<SessionSnapshotPayload>(payloadString)
             else -> null
         }
     }
@@ -447,6 +456,10 @@ class MessageCodec(
             is RejectJoinPayload -> RejectJoinPayload.serializer()
             is PlaybackActionPayload -> PlaybackActionPayload.serializer()
             is BufferReadyPayload -> BufferReadyPayload.serializer()
+            is BufferWaitPayload -> BufferWaitPayload.serializer()
+            is BufferCompletePayload -> BufferCompletePayload.serializer()
+            is SyncStatePayload -> SyncStatePayload.serializer()
+            is PongPayload -> PongPayload.serializer()
             is KickUserPayload -> KickUserPayload.serializer()
             is SuggestTrackPayload -> SuggestTrackPayload.serializer()
             is ApproveSuggestionPayload -> ApproveSuggestionPayload.serializer()
@@ -455,6 +468,14 @@ class MessageCodec(
             is TransferHostPayload -> TransferHostPayload.serializer()
             is ChatPayload -> ChatPayload.serializer()
             is UpdateRoomSettingsPayload -> UpdateRoomSettingsPayload.serializer()
+            is ClockSyncRequestPayload -> ClockSyncRequestPayload.serializer()
+            is ClockSyncResponsePayload -> ClockSyncResponsePayload.serializer()
+            is PlayScheduledPayload -> PlayScheduledPayload.serializer()
+            is PauseCommandPayload -> PauseCommandPayload.serializer()
+            is SeekCommandPayload -> SeekCommandPayload.serializer()
+            is BufferLockPayload -> BufferLockPayload.serializer()
+            is BufferReadyEventPayload -> BufferReadyEventPayload.serializer()
+            is SessionSnapshotPayload -> SessionSnapshotPayload.serializer()
             else -> throw IllegalArgumentException("Unknown type: ${value!!::class.simpleName}")
         } as kotlinx.serialization.KSerializer<T>
     }

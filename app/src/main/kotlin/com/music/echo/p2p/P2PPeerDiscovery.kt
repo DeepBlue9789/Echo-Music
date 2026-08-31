@@ -7,13 +7,22 @@ import android.os.Build
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import timber.log.Timber
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.net.Inet4Address
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
+import java.net.Socket
 import java.util.Collections
 
 class P2PPeerDiscovery(
@@ -23,7 +32,7 @@ class P2PPeerDiscovery(
     companion object {
         private const val TAG = "P2PPeerDiscovery"
         private const val SERVICE_TYPE = "_echomusic._tcp."
-        private const val SERVICE_NAME = "EchoPlayer"
+        private const val PROBE_TIMEOUT_MS = 800
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -33,6 +42,9 @@ class P2PPeerDiscovery(
 
     private val _discoveredPeers = MutableStateFlow<List<DiscoveredPeer>>(emptyList())
     val discoveredPeers: StateFlow<List<DiscoveredPeer>> = _discoveredPeers.asStateFlow()
+
+    private val _isScanning = MutableStateFlow(false)
+    val isScanning: StateFlow<Boolean> = _isScanning.asStateFlow()
 
     private var isDiscovering = false
     private var isRegistered = false
@@ -64,27 +76,27 @@ class P2PPeerDiscovery(
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error resolving device IP addresses")
         }
-        // Return tailscale IPs first, followed by LAN IPs
         return addresses.sortedByDescending { it.second }
     }
 
     /**
-     * Starts registering the local Echo Music P2P service on the network.
+     * Starts registering the local Echo Music P2P service on the network via mDNS.
      */
-    fun startBroadcasting(serviceNamePrefix: String = "Echo") {
+    fun startBroadcasting(deviceName: String = "Echo Device") {
         if (isRegistered || nsdManager == null) return
 
         try {
+            val sanitizedName = deviceName.replace(Regex("[^a-zA-Z0-9 _-]"), "").take(20).ifBlank { "Echo-${Build.MODEL.take(8)}" }
             val serviceInfo = NsdServiceInfo().apply {
-                serviceName = "$serviceNamePrefix-${Build.MODEL.take(12)}"
+                serviceName = sanitizedName
                 serviceType = SERVICE_TYPE
                 setPort(port)
             }
 
             registrationListener = object : NsdManager.RegistrationListener {
-                override fun onServiceRegistered(NsdServiceInfo: NsdServiceInfo) {
+                override fun onServiceRegistered(serviceInfo: NsdServiceInfo) {
                     isRegistered = true
-                    Timber.tag(TAG).i("P2P NSD Service registered: ${NsdServiceInfo.serviceName}")
+                    Timber.tag(TAG).i("P2P NSD Service registered: ${serviceInfo.serviceName}")
                 }
 
                 override fun onRegistrationFailed(serviceInfo: NsdServiceInfo, errorCode: Int) {
@@ -122,7 +134,7 @@ class P2PPeerDiscovery(
     }
 
     /**
-     * Starts discovering other Echo Music P2P instances on the network.
+     * Starts discovering other Echo Music P2P instances via mDNS (local WiFi).
      */
     fun startDiscovery() {
         if (isDiscovering || nsdManager == null) return
@@ -180,21 +192,105 @@ class P2PPeerDiscovery(
                     val host = serviceInfo.host?.hostAddress ?: return
                     val peerPort = serviceInfo.port
                     val isTailscale = host.startsWith("100.")
-                    val peer = DiscoveredPeer(
-                        name = serviceInfo.serviceName,
-                        hostAddress = host,
-                        port = peerPort,
-                        isTailscale = isTailscale
+                    addDiscoveredPeer(
+                        DiscoveredPeer(
+                            name = serviceInfo.serviceName,
+                            hostAddress = host,
+                            port = peerPort,
+                            isTailscale = isTailscale
+                        )
                     )
-
-                    scope.launch {
-                        val current = _discoveredPeers.value.filter { it.hostAddress != host }
-                        _discoveredPeers.value = current + peer
-                    }
                 }
             })
         } catch (e: Exception) {
             Timber.tag(TAG).w(e, "Error during service resolve")
+        }
+    }
+
+    /**
+     * Actively scans candidate Tailscale IPs and saved partner IP by directly probing port 9876.
+     * This bypasses mDNS limitations over Tailscale VPN networks.
+     */
+    fun scanTailscalePartners(candidateIps: List<String>, myDeviceName: String) {
+        scope.launch {
+            _isScanning.value = true
+            Timber.tag(TAG).d("Starting active Tailscale probe for ${candidateIps.size} targets")
+
+            val myIps = getDeviceIpAddresses().map { it.first }.toSet()
+            val filteredCandidates = candidateIps.filter { it.isNotBlank() && it !in myIps }.distinct()
+
+            filteredCandidates.map { ip ->
+                async { probeAndAddPeer(ip, myDeviceName) }
+            }.awaitAll()
+
+            _isScanning.value = false
+        }
+    }
+
+    /**
+     * Probes an individual IP address on port 9876 to discover if an Echo Partner server is active.
+     */
+    suspend fun probeAndAddPeer(ip: String, myDeviceName: String): DiscoveredPeer? = withContext(Dispatchers.IO) {
+        try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress(ip, port), PROBE_TIMEOUT_MS)
+                socket.soTimeout = PROBE_TIMEOUT_MS
+
+                val writer = OutputStreamWriter(socket.getOutputStream(), Charsets.UTF_8)
+                val reader = BufferedReader(InputStreamReader(socket.getInputStream(), Charsets.UTF_8))
+
+                // Send lightweight HTTP GET probe to read server info header/json
+                val probeRequest = "GET /info HTTP/1.1\r\nHost: $ip:$port\r\nUser-Agent: Echo-P2P-Probe\r\nX-Echo-Sender-Name: $myDeviceName\r\n\r\n"
+                writer.write(probeRequest)
+                writer.flush()
+
+                var peerName = "Echo Device ($ip)"
+                var line: String? = reader.readLine()
+                var contentLength = 0
+
+                while (line != null && line.isNotBlank()) {
+                    if (line.startsWith("X-Echo-Device-Name:", ignoreCase = true)) {
+                        peerName = line.substringAfter(":").trim()
+                    } else if (line.startsWith("Content-Length:", ignoreCase = true)) {
+                        contentLength = line.substringAfter(":").trim().toIntOrNull() ?: 0
+                    }
+                    line = reader.readLine()
+                }
+
+                if (contentLength > 0) {
+                    val bodyChars = CharArray(contentLength)
+                    reader.read(bodyChars, 0, contentLength)
+                    val body = String(bodyChars)
+                    try {
+                        val json = JSONObject(body)
+                        if (json.has("name")) {
+                            peerName = json.getString("name")
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                val isTailscale = ip.startsWith("100.")
+                val discovered = DiscoveredPeer(
+                    name = peerName,
+                    hostAddress = ip,
+                    port = port,
+                    isTailscale = isTailscale
+                )
+                addDiscoveredPeer(discovered)
+                Timber.tag(TAG).i("Active Tailscale probe found Echo peer: $peerName at $ip:$port")
+                return@withContext discovered
+            }
+        } catch (e: Exception) {
+            // Connection failed or timed out (expected if device is offline)
+            Timber.tag(TAG).v("Probe failed for $ip: ${e.message}")
+            null
+        }
+    }
+
+    private fun addDiscoveredPeer(peer: DiscoveredPeer) {
+        scope.launch {
+            val current = _discoveredPeers.value.filter { it.hostAddress != peer.hostAddress }
+            _discoveredPeers.value = current + peer
         }
     }
 

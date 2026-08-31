@@ -1,17 +1,23 @@
-name: Sync with Upstream
+name: Sync Upstream & Auto Release
 
 on:
   schedule:
-    # Run daily at midnight UTC
-    - cron: '0 0 * * *'
-  workflow_dispatch: # Allows manual trigger
+    # Run every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force triggering a new release even if no new upstream commits'
+        type: boolean
+        default: false
 
 jobs:
-  sync:
-    name: Sync with Official Echo Music Upstream
+  sync-and-release:
+    name: Sync Upstream and Trigger Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
 
     steps:
       - name: Checkout Fork
@@ -26,19 +32,69 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add Upstream Remote
+      - name: Add Upstream Remote & Fetch
         run: |
           git remote add upstream https://github.com/EchoMusicApp/Echo-Music.git
-          git fetch upstream main
+          git fetch upstream main --tags
+
+      - name: Check for New Upstream Commits
+        id: check_upstream
+        run: |
+          LOCAL_HASH=$(git rev-parse HEAD)
+          UPSTREAM_HASH=$(git rev-parse upstream/main)
+          echo "Local HEAD: $LOCAL_HASH"
+          echo "Upstream HEAD: $UPSTREAM_HASH"
+          
+          # Check if upstream has commits not in local
+          COMMITS_BEHIND=$(git rev-list --count HEAD..upstream/main)
+          echo "Commits behind upstream: $COMMITS_BEHIND"
+          
+          # Check upstream latest release tag
+          UPSTREAM_LATEST_TAG=$(curl -s https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+          echo "Upstream latest release tag: $UPSTREAM_LATEST_TAG"
+          
+          # Check our latest release tag
+          FORK_LATEST_TAG=$(curl -s https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+          echo "Fork latest release tag: $FORK_LATEST_TAG"
+          
+          HAS_NEW_COMMITS=false
+          if [ "$COMMITS_BEHIND" -gt 0 ]; then
+            HAS_NEW_COMMITS=true
+          fi
+          
+          NEW_RELEASE_NEEDED=false
+          if [ "$HAS_NEW_COMMITS" = "true" ] || [ "${{ github.event.inputs.force_release }}" = "true" ] || [ "$UPSTREAM_LATEST_TAG" != "$FORK_LATEST_TAG" ]; then
+            NEW_RELEASE_NEEDED=true
+          fi
+          
+          echo "has_new_commits=$HAS_NEW_COMMITS" >> $GITHUB_OUTPUT
+          echo "new_release_needed=$NEW_RELEASE_NEEDED" >> $GITHUB_OUTPUT
+          echo "upstream_tag=$UPSTREAM_LATEST_TAG" >> $GITHUB_OUTPUT
 
       - name: Merge Upstream into Fork
+        if: steps.check_upstream.outputs.has_new_commits == 'true'
         run: |
           echo "Merging upstream/main into fork main..."
-          git merge upstream/main --no-edit -m "Merge upstream changes into fork" || {
-            echo "Conflict detected during merge. Please resolve manually."
-            exit 1
+          git merge upstream/main --no-edit -m "Sync upstream Echo-Music changes into fork" || {
+            echo "Conflict detected during merge. Resolving with fork preference for conflicting files..."
+            # In case of conflicts, favor fork customizations
+            git checkout --ours .
+            git add -A
+            git commit -m "Resolve merge conflicts prioritizing fork ListenTogether features"
           }
-
-      - name: Push to Fork Origin
-        run: |
           git push origin main
+
+      - name: Create and Push New Release Tag
+        if: steps.check_upstream.outputs.new_release_needed == 'true'
+        run: |
+          VERSION=$(grep "versionName" app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          TARGET_TAG="v${VERSION}"
+          
+          # If tag already exists on origin, append timestamp/build suffix
+          if git rev-parse "$TARGET_TAG" >/dev/null 2>&1; then
+            TARGET_TAG="v${VERSION}-$(date +'%Y%m%d%H%M')"
+          fi
+          
+          echo "Creating new release tag: $TARGET_TAG"
+          git tag "$TARGET_TAG"
+          git push origin "$TARGET_TAG"

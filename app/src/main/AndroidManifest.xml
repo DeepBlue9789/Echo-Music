@@ -14,6 +14,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
     <!--    bluetooth connect-->
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -462,6 +463,10 @@
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
         </service>
+
+        <service
+            android:name=".listentogether.ListenTogetherOverlayService"
+            android:exported="false" />
 
     </application>
 

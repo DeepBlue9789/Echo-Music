@@ -20,7 +20,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.music.echo.p2p.DiscoveredPeer
@@ -28,6 +27,7 @@ import com.music.echo.p2p.P2PConnectionStatus
 import echo.music.iad1tya.LocalListenTogetherManager
 import echo.music.iad1tya.R
 import echo.music.iad1tya.listentogether.ConnectionState
+import echo.music.iad1tya.utils.rememberPreference
 
 @Composable
 fun P2PPartnerSection(
@@ -40,18 +40,34 @@ fun P2PPartnerSection(
 
     val p2pStatus by p2pManager.status.collectAsState()
     val savedPartnerIp by p2pManager.savedPartnerAddress.collectAsState()
+    val deviceName by p2pManager.deviceName.collectAsState()
     val isServerRunning by p2pManager.isServerRunning.collectAsState()
     val localPort by p2pManager.localPort.collectAsState()
     val discoveredPeers by p2pManager.discovery.discoveredPeers.collectAsState()
+    val isScanning by p2pManager.discovery.isScanning.collectAsState()
     val connectionState by manager.connectionState.collectAsState()
 
     var partnerIpInput by rememberSaveable(savedPartnerIp) { mutableStateOf(savedPartnerIp) }
-    var isExpanded by rememberSaveable { mutableStateOf(true) }
+    var deviceNameInput by rememberSaveable(deviceName) { mutableStateOf(deviceName) }
+    var isEditingDeviceName by rememberSaveable { mutableStateOf(false) }
+
+    val (autoDiscoverable, onAutoDiscoverableChange) = rememberPreference(
+        key = echo.music.iad1tya.constants.ListenTogetherAutoDiscoverableKey,
+        defaultValue = false
+    )
 
     val ipAddresses = remember { p2pManager.discovery.getDeviceIpAddresses() }
 
-    LaunchedEffect(Unit) {
-        manager.startPeerDiscovery()
+    LaunchedEffect(autoDiscoverable) {
+        if (autoDiscoverable) {
+            p2pManager.startLocalServer()
+            manager.startPeerDiscovery()
+            p2pManager.scanForPartners()
+        } else {
+            if (connectionState == ConnectionState.DISCONNECTED) {
+                p2pManager.stopLocalServer()
+            }
+        }
     }
 
     Card(
@@ -102,6 +118,105 @@ fun P2PPartnerSection(
                             text = stringResource(R.string.p2p_partner_mesh_desc),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Auto-Discoverable Standby Toggle
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto-discoverable in Background",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = if (autoDiscoverable) "Device is listening for partners" else "Tap 'Host P2P Session' to make discoverable",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = autoDiscoverable,
+                        onCheckedChange = { onAutoDiscoverableChange(it) }
+                    )
+                }
+            }
+
+            // Device Name Customization Field
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = stringResource(R.string.p2p_device_name),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        if (!isEditingDeviceName) {
+                            TextButton(
+                                onClick = { isEditingDeviceName = true },
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(stringResource(R.string.edit), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+
+                    if (isEditingDeviceName) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            OutlinedTextField(
+                                value = deviceNameInput,
+                                onValueChange = { deviceNameInput = it },
+                                placeholder = { Text(stringResource(R.string.p2p_device_name_hint)) },
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            Button(
+                                onClick = {
+                                    p2pManager.saveDeviceName(deviceNameInput)
+                                    isEditingDeviceName = false
+                                    Toast.makeText(context, "Device name saved", Toast.LENGTH_SHORT).show()
+                                },
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(stringResource(R.string.done))
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = deviceName,
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 }
@@ -197,15 +312,47 @@ fun P2PPartnerSection(
                 }
             )
 
+            // Scan / Refresh Button
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = stringResource(R.string.p2p_discovered_peers),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                TextButton(
+                    onClick = { p2pManager.scanForPartners() },
+                    enabled = !isScanning,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    if (isScanning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(stringResource(R.string.p2p_scanning), style = MaterialTheme.typography.labelSmall)
+                    } else {
+                        Icon(
+                            painter = painterResource(R.drawable.refresh),
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.p2p_scan_peers), style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+
             // Discovered Peers List
             if (discoveredPeers.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = stringResource(R.string.p2p_discovered_peers),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold
-                    )
                     discoveredPeers.forEach { peer ->
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -215,7 +362,7 @@ fun P2PPartnerSection(
                                 .clip(RoundedCornerShape(12.dp))
                                 .clickable {
                                     partnerIpInput = peer.hostAddress
-                                    manager.connectToPartner(peer.hostAddress, username)
+                                    manager.connectToPartner(peer.hostAddress, deviceName)
                                 }
                         ) {
                             Row(
@@ -223,22 +370,33 @@ fun P2PPartnerSection(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Column {
-                                    Text(
-                                        text = peer.name,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary)
                                     )
-                                    Text(
-                                        text = "${peer.hostAddress}:${peer.port}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
+                                    Column {
+                                        Text(
+                                            text = peer.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "${peer.hostAddress}:${peer.port}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
                                 FilledTonalButton(
                                     onClick = {
                                         partnerIpInput = peer.hostAddress
-                                        manager.connectToPartner(peer.hostAddress, username)
+                                        manager.connectToPartner(peer.hostAddress, deviceName)
                                     },
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
@@ -246,6 +404,29 @@ fun P2PPartnerSection(
                                 }
                             }
                         }
+                    }
+                }
+            } else if (isScanning) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.4f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = stringResource(R.string.p2p_scanning),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }
@@ -282,7 +463,7 @@ fun P2PPartnerSection(
                         onClick = {
                             val target = partnerIpInput.trim()
                             if (target.isNotBlank()) {
-                                manager.connectToPartner(target, username)
+                                manager.connectToPartner(target, deviceName)
                             } else {
                                 Toast.makeText(context, "Please enter partner Tailscale IP or Hostname", Toast.LENGTH_SHORT).show()
                             }
@@ -310,7 +491,7 @@ fun P2PPartnerSection(
 
                     FilledTonalButton(
                         onClick = {
-                            manager.hostP2PSession(username)
+                            manager.hostP2PSession(deviceName)
                         },
                         enabled = !isConnecting,
                         shape = RoundedCornerShape(14.dp),

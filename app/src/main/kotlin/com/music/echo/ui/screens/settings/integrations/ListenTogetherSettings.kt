@@ -33,6 +33,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -83,6 +84,20 @@ import echo.music.iad1tya.ui.utils.backToMain
 import echo.music.iad1tya.utils.rememberPreference
 import echo.music.iad1tya.viewmodels.ListenTogetherViewModel
 import kotlinx.coroutines.flow.collectLatest
+import echo.music.iad1tya.constants.ListenTogetherFloatingChatBubbleKey
+import echo.music.iad1tya.constants.ListenTogetherBubbleSizeKey
+import echo.music.iad1tya.constants.ListenTogetherBlockedUsersKey
+import echo.music.iad1tya.constants.ListenTogetherChatBlurIntensityKey
+import echo.music.iad1tya.constants.ListenTogetherChatTintIntensityKey
+import echo.music.iad1tya.constants.ListenTogetherChatFontSizeKey
+import echo.music.iad1tya.constants.ListenTogetherChatFontWeightKey
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import echo.music.iad1tya.listentogether.ListenTogetherOverlayService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,7 +105,8 @@ fun ListenTogetherSettings(
     navController: NavController,
     scrollBehavior: TopAppBarScrollBehavior,
     viewModel: ListenTogetherViewModel = hiltViewModel(),
-highlightKey: String? = null) {
+    highlightKey: String? = null
+) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
@@ -107,6 +123,13 @@ highlightKey: String? = null) {
     var autoApproval by rememberPreference(ListenTogetherAutoApprovalKey, false)
     var syncHostVolume by rememberPreference(ListenTogetherSyncVolumeKey, true)
     var smartResync by rememberPreference(ListenTogetherSmartResyncKey, true)
+    var pauseOnDisconnect by rememberPreference(echo.music.iad1tya.constants.ListenTogetherPauseOnDisconnectKey, true)
+    var enableFloatingBubble by rememberPreference(ListenTogetherFloatingChatBubbleKey, true)
+    var bubbleSize by rememberPreference(ListenTogetherBubbleSizeKey, "medium")
+    var chatBlurIntensity by rememberPreference(ListenTogetherChatBlurIntensityKey, 16f)
+    var chatTintIntensity by rememberPreference(ListenTogetherChatTintIntensityKey, 0.35f)
+    var chatFontSize by rememberPreference(ListenTogetherChatFontSizeKey, "medium")
+    var chatFontWeight by rememberPreference(ListenTogetherChatFontWeightKey, "medium")
     
     var showServerUrlDialog by rememberSaveable { mutableStateOf(false) }
     var showUsernameDialog by rememberSaveable { mutableStateOf(false) }
@@ -114,7 +137,22 @@ highlightKey: String? = null) {
     var showJoinRoomDialog by rememberSaveable { mutableStateOf(false) }
     var showLogsDialog by rememberSaveable { mutableStateOf(false) }
     var showBlockedUsersDialog by rememberSaveable { mutableStateOf(false) }
+    var showBubbleSizeDialog by rememberSaveable { mutableStateOf(false) }
+    var showChatAppearanceDialog by rememberSaveable { mutableStateOf(false) }
     var roomCodeInput by rememberSaveable { mutableStateOf("") }
+
+    val overlayLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) {
+        // After returning from overlay permission settings, check if permission was granted.
+        // If the user had toggled ON the bubble before the permission request, activate it now.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && Settings.canDrawOverlays(context)) {
+            enableFloatingBubble = true
+        } else {
+            // Permission denied — keep bubble disabled
+            enableFloatingBubble = false
+        }
+    }
     
     
     LaunchedEffect(Unit) {
@@ -324,6 +362,206 @@ highlightKey: String? = null) {
         )
     }
 
+    if (showBubbleSizeDialog) {
+        DefaultDialog(
+            onDismiss = { showBubbleSizeDialog = false },
+            title = { Text("Floating Bubble Size") }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    "small" to "Small (44 dp)",
+                    "medium" to "Medium (56 dp)",
+                    "large" to "Large (68 dp)"
+                ).forEach { (sizeKey, label) ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (bubbleSize == sizeKey) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                bubbleSize = sizeKey
+                                showBubbleSizeDialog = false
+                            }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = if (bubbleSize == sizeKey) FontWeight.Bold else FontWeight.Normal
+                            )
+                            if (bubbleSize == sizeKey) {
+                                Icon(
+                                    painter = painterResource(R.drawable.check),
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showChatAppearanceDialog) {
+        DefaultDialog(
+            onDismiss = { showChatAppearanceDialog = false },
+            title = { Text("Chat Appearance & Glassmorphism") },
+            buttons = {
+                TextButton(onClick = { showChatAppearanceDialog = false }) {
+                    Text("Done")
+                }
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                // Blur Intensity
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Glass Blur Intensity",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "${chatBlurIntensity.toInt()} dp",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Slider(
+                        value = chatBlurIntensity,
+                        onValueChange = { chatBlurIntensity = it },
+                        valueRange = 0f..30f,
+                        steps = 29
+                    )
+                }
+
+                // Tint Opacity
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Glass Tint Opacity",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            text = "${(chatTintIntensity * 100).toInt()}%",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Slider(
+                        value = chatTintIntensity,
+                        onValueChange = { chatTintIntensity = it },
+                        valueRange = 0.10f..0.85f,
+                        steps = 14
+                    )
+                }
+
+                // Font Size
+                Column {
+                    Text(
+                        text = "Chat Text Size",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "small" to "Small",
+                            "medium" to "Medium",
+                            "large" to "Large"
+                        ).forEach { (key, label) ->
+                            val isSelected = chatFontSize == key
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { chatFontSize = key }
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Font Thickness / Weight
+                Column {
+                    Text(
+                        text = "Chat Text Thickness",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(
+                            "normal" to "Regular",
+                            "medium" to "Medium",
+                            "bold" to "Bold"
+                        ).forEach { (key, label) ->
+                            val isSelected = chatFontWeight == key
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { chatFontWeight = key }
+                            ) {
+                                Box(
+                                    modifier = Modifier.padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontWeight = when (key) {
+                                            "bold" -> FontWeight.Bold
+                                            "medium" -> FontWeight.Medium
+                                            else -> FontWeight.Normal
+                                        },
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Column(
         Modifier
             .windowInsetsPadding(LocalPlayerAwareWindowInsets.current.only(WindowInsetsSides.Horizontal))
@@ -456,12 +694,126 @@ highlightKey: String? = null) {
                         onClick = { smartResync = !smartResync }
                     ),
                     IntegrationCardItem(
+                        icon = painterResource(R.drawable.pause),
+                        title = { Text("Pause on Disconnect") },
+                        description = {
+                            Text("Automatically pause playback on all devices when a partner leaves or disconnects")
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = pauseOnDisconnect,
+                                onCheckedChange = { pauseOnDisconnect = it },
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (pauseOnDisconnect) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { pauseOnDisconnect = !pauseOnDisconnect }
+                    ),
+                    IntegrationCardItem(
                         icon = painterResource(R.drawable.bug_report),
                         title = { Text(stringResource(R.string.listen_together_view_logs)) },
                         description = {
                             Text(stringResource(R.string.listen_together_view_logs_desc))
                         },
                         onClick = { showLogsDialog = true }
+                    )
+                )
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            IntegrationCard(
+                title = "Floating Chat & Overlay",
+                items = listOf(
+                    IntegrationCardItem(
+                        icon = painterResource(R.drawable.chat_msg),
+                        title = { Text("Enable Floating Bubble") },
+                        description = {
+                            val hasPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(context)
+                            Text(
+                                if (!hasPermission)
+                                    "Tap to grant overlay permission — required to show bubble over other apps"
+                                else
+                                    "Show floating chat bubble over all apps during Listen Together sessions"
+                            )
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = enableFloatingBubble,
+                                onCheckedChange = { checked ->
+                                    if (checked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                                        Toast.makeText(context, "Please grant overlay permission to use the floating bubble", Toast.LENGTH_LONG).show()
+                                        val intent = Intent(
+                                            Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                            Uri.parse("package:${context.packageName}")
+                                        )
+                                        overlayLauncher.launch(intent)
+                                    } else {
+                                        enableFloatingBubble = checked
+                                        if (!checked) {
+                                            ListenTogetherOverlayService.stop(context)
+                                        }
+                                        // If enabling, overlay will auto-start next time a session is joined
+                                    }
+                                },
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (enableFloatingBubble) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                }
+                            )
+                        },
+                        onClick = {
+                            if (!enableFloatingBubble && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                                Toast.makeText(context, "Please grant overlay permission to use the floating bubble", Toast.LENGTH_LONG).show()
+                                val intent = Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:${context.packageName}")
+                                )
+                                overlayLauncher.launch(intent)
+                            } else {
+                                val next = !enableFloatingBubble
+                                enableFloatingBubble = next
+                                if (!next) {
+                                    ListenTogetherOverlayService.stop(context)
+                                }
+                            }
+                        }
+                    ),
+                    IntegrationCardItem(
+                        icon = painterResource(R.drawable.tune),
+                        title = { Text("Floating Bubble Size") },
+                        description = {
+                            Text(
+                                when (bubbleSize) {
+                                    "small" -> "Small (44 dp)"
+                                    "large" -> "Large (68 dp)"
+                                    else -> "Medium (56 dp)"
+                                }
+                            )
+                        },
+                        onClick = { showBubbleSizeDialog = true }
+                    ),
+                    IntegrationCardItem(
+                        icon = painterResource(R.drawable.palette),
+                        title = { Text("Chat Glassmorphism & Appearance") },
+                        description = {
+                            Text(
+                                "Blur ${chatBlurIntensity.toInt()}dp • Tint ${(chatTintIntensity * 100).toInt()}% • ${chatFontSize.replaceFirstChar { it.uppercase() }} ${chatFontWeight.replaceFirstChar { it.uppercase() }}"
+                            )
+                        },
+                        onClick = { showChatAppearanceDialog = true }
                     )
                 )
             )

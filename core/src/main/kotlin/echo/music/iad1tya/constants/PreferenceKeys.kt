@@ -174,7 +174,19 @@ val ListenTogetherModeKey = stringPreferencesKey("listenTogetherMode") // "p2p" 
 val ListenTogetherP2PPartnerIpKey = stringPreferencesKey("listenTogetherP2PPartnerIp")
 val ListenTogetherP2PPortKey = intPreferencesKey("listenTogetherP2PPort")
 val ListenTogetherP2PAutoHostKey = booleanPreferencesKey("listenTogetherP2PAutoHost")
+val ListenTogetherP2PDeviceNameKey = stringPreferencesKey("listenTogetherP2PDeviceName")
+val ListenTogetherAutoDiscoverableKey = booleanPreferencesKey("listenTogetherAutoDiscoverable")
+val ListenTogetherFloatingChatBubbleKey = booleanPreferencesKey("listenTogetherFloatingChatBubble")
+val ListenTogetherSystemOverlayBubbleKey = booleanPreferencesKey("listenTogetherSystemOverlayBubble") // kept for migration, no longer used as toggle
+val ListenTogetherBubbleSizeKey = stringPreferencesKey("listenTogetherBubbleSize") // "small", "medium", "large"
+val ListenTogetherPauseOnDisconnectKey = booleanPreferencesKey("listenTogetherPauseOnDisconnect")
+val ListenTogetherChatButtonInPlayerKey = booleanPreferencesKey("listenTogetherChatButtonInPlayer")
+val ListenTogetherChatBlurIntensityKey = floatPreferencesKey("listenTogetherChatBlurIntensity") // 0f to 30f, default 16f
+val ListenTogetherChatTintIntensityKey = floatPreferencesKey("listenTogetherChatTintIntensity") // 0.10f to 0.85f, default 0.35f
+val ListenTogetherChatFontSizeKey = stringPreferencesKey("listenTogetherChatFontSize") // "small", "medium", "large"
+val ListenTogetherChatFontWeightKey = stringPreferencesKey("listenTogetherChatFontWeight") // "normal", "medium", "bold"
 
+// Persistent Session Keys
 val ListenTogetherSessionTokenKey = stringPreferencesKey("listenTogetherSessionToken")
 val ListenTogetherRoomCodeKey = stringPreferencesKey("listenTogetherRoomCode")
 val ListenTogetherUserIdKey = stringPreferencesKey("listenTogetherUserId")

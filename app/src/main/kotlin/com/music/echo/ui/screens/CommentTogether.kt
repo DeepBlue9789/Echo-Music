@@ -217,6 +217,79 @@ private fun MessageItem(
     isMe: Boolean,
     onReply: (ChatMessagePayload) -> Unit
 ) {
+    if (message.userId == "SYSTEM" || message.message.startsWith("🎵")) {
+        val trackInfo = message.trackInfo
+        val title = trackInfo?.title ?: message.message.removePrefix("🎵 Now Playing: ").removePrefix("🎵 ").substringBefore(" - ")
+        val artist = trackInfo?.artist ?: message.message.substringAfter(" - ", "Echo Music")
+
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f),
+            shadowElevation = 2.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 2.dp)
+                .combinedClickable(
+                    onClick = {},
+                    onLongClick = { onReply(message) }
+                )
+        ) {
+            Row(
+                modifier = Modifier.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                coil3.compose.AsyncImage(
+                    model = trackInfo?.thumbnail,
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primaryContainer)
+                )
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.music_note),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Text(
+                            text = "NOW PLAYING",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = MaterialTheme.colorScheme.primary,
+                            letterSpacing = 1.sp
+                        )
+                    }
+
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+
+                    Text(
+                        text = artist,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        return
+    }
+
     val alignment = if (isMe) Alignment.End else Alignment.Start
     val bubbleColor = if (isMe) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
     val textColor = if (isMe) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant

@@ -1360,6 +1360,9 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.align(Alignment.BottomCenter)
                     )
 
+                    // Floating bubble is now always system-wide (via ListenTogetherOverlayService).
+                    // No in-app fallback bubble — the player screen shows a chat button when the bubble is disabled.
+
 
 
                     sharedSong?.let { song ->
@@ -1589,7 +1592,7 @@ class MainActivity : ComponentActivity() {
 val LocalDatabase = staticCompositionLocalOf<MusicDatabase> { error("No database provided") }
 val LocalRingtoneViewModel = compositionLocalOf<RingtoneViewModel> { error("No RingtoneViewModel provided") }
 
-val LocalPlayerConnection = staticCompositionLocalOf<PlayerConnection?> { error("No PlayerConnection provided") }
+val LocalPlayerConnection = staticCompositionLocalOf<PlayerConnection?> { null }
 
 val LocalPlayerAwareWindowInsets = compositionLocalOf<WindowInsets> { error("No WindowInsets provided") }
 val LocalDownloadUtil = staticCompositionLocalOf<DownloadUtil> { error("No DownloadUtil provided") }

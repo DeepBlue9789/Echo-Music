@@ -7,13 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release Tag (e.g. v1.0.0-p2p)'
+        description: 'Release Tag (e.g. v1.2.3)'
         required: true
-        default: 'v1.0.0-p2p'
+        default: 'v1.2.3'
 
 jobs:
   build:
-    name: Build & Publish Release APK
+    name: Build & Publish Universal Release APK
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -31,26 +32,67 @@ jobs:
           distribution: 'temurin'
           cache: gradle
 
-      - name: Build Release APKs
-        run: |
-          chmod +x gradlew
-          ./gradlew assembleRelease || ./gradlew assembleDebug
-
-      - name: Locate APKs
-        id: locate_apk
-        run: |
-          mkdir -p release-apks
-          find app/build/outputs/apk/ -name "*.apk" -exec cp {} release-apks/ \;
-          ls -la release-apks/
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
 
       - name: Determine Release Tag
         id: release_tag
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "TAG=${{ github.event.inputs.tag_name }}" >> $GITHUB_ENV
+            TAG="${{ github.event.inputs.tag_name }}"
           else
-            echo "TAG=${{ github.ref_name }}" >> $GITHUB_ENV
+            TAG="${{ github.ref_name }}"
           fi
+          echo "TAG=$TAG" >> $GITHUB_ENV
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Build Universal GMS Release APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleUniversalGmsRelease
+
+      - name: Prepare Release Assets & Changelog
+        id: prepare_assets
+        run: |
+          mkdir -p release-apks
+          
+          # Find the universal release APK
+          RELEASE_APK=$(find app/build/outputs/apk/ -name "*release*.apk" | head -n 1)
+          if [ -z "$RELEASE_APK" ]; then
+            echo "No release APK found, searching for any non-debug APK..."
+            RELEASE_APK=$(find app/build/outputs/apk/ -name "*.apk" ! -name "*debug*" | head -n 1)
+          fi
+          
+          if [ -n "$RELEASE_APK" ]; then
+            echo "Found release APK: $RELEASE_APK"
+            cp "$RELEASE_APK" "release-apks/app-universal-gms-release.apk"
+            cp "$RELEASE_APK" "release-apks/EchoMusic-${{ env.TAG }}-universal.apk"
+          else
+            echo "Error: Release APK not generated!"
+            exit 1
+          fi
+          
+          # Generate changelog.json matching echomusicupdater format
+          cat << 'EOF' > release-apks/changelog.json
+          {
+            "description": "Echo Music with Listen Together Real-Time Music Synchronization Engine",
+            "changelog": [
+              {
+                "title": "Listen Together Real-Time Synchronization Engine",
+                "items": [
+                  "Server-Authoritative Virtual Timeline synchronization with millisecond precision",
+                  "Dynamic Pitch-Preserving Soft Slew for inaudible playback drift correction",
+                  "Cooperative Multi-Device Buffer Barrier across track transitions and mid-stream buffering",
+                  "Zero-stutter playback resume with decoder flush prevention",
+                  "Edge-anchored floating chat bubble with system cross-window background blur",
+                  "Full Peer-to-Peer mesh over Tailscale VPN and Local Wi-Fi"
+                ]
+              }
+            ]
+          }
+          EOF
+          
+          ls -la release-apks/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -59,11 +101,17 @@ jobs:
           name: Echo Music ${{ env.TAG }}
           body: |
             ## Echo Music Release (${{ env.TAG }})
-            - Symmetric Peer-to-Peer (P2P) Partner synchronization over Tailscale / LAN
-            - Direct embedded WebSocket server & cooperative buffering
-            - In-room chat & track suggestions
-            - Dynamic update checker integration
-          files: release-apks/*.apk
+            
+            ### Listen Together Enhancements
+            - **Server-Authoritative Virtual Timeline Synchronization Engine**: Continuous timeline model ($p(t) = p_{ref} + r \cdot (t - t_{ref})$) with cooperative buffer barriers.
+            - **Seamless Two-Phase Scheduled Play**: Millisecond-precise synchronized track starts without decoder flushes or audio cutouts.
+            - **Pitch-Preserving Dynamic Soft Slew**: Invisible speed corrections ($0.96\times$ to $1.10\times$) keeping devices tightly in sync without audio distortion.
+            - **Edge-Anchored Floating Chat Bubble**: Circular floating bubble remains rock solid at the screen edge while message previews expand naturally beside it.
+            - **Hardware-Accelerated Window Blur**: System-wide cross-window backdrop blur on supported Android versions with custom tint and opacity sliders.
+            - **Peer-to-Peer Mesh Mode**: Direct connection over Tailscale mesh and local Wi-Fi without third-party server requirements.
+          files: |
+            release-apks/*.apk
+            release-apks/changelog.json
           draft: false
           prerelease: false
         env:

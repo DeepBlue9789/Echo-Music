@@ -1,6 +1,7 @@
 package com.music.echo.p2p
 
 import android.content.Context
+import android.os.Build
 import androidx.datastore.preferences.core.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import echo.music.iad1tya.constants.*
@@ -26,7 +27,7 @@ class P2PPartnerManager @Inject constructor(
 ) {
     companion object {
         private const val TAG = "P2PPartnerManager"
-        private const val RECONNECT_INTERVAL_MS = 4000L
+        private const val RECONNECT_INTERVAL_MS = 5000L
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -39,6 +40,9 @@ class P2PPartnerManager @Inject constructor(
 
     private val _savedPartnerAddress = MutableStateFlow("")
     val savedPartnerAddress: StateFlow<String> = _savedPartnerAddress.asStateFlow()
+
+    private val _deviceName = MutableStateFlow(Build.MODEL ?: "Echo Device")
+    val deviceName: StateFlow<String> = _deviceName.asStateFlow()
 
     private val _isServerRunning = MutableStateFlow(false)
     val isServerRunning: StateFlow<Boolean> = _isServerRunning.asStateFlow()
@@ -59,15 +63,35 @@ class P2PPartnerManager @Inject constructor(
     private suspend fun loadConfig() {
         val partnerIp = context.dataStore.get(ListenTogetherP2PPartnerIpKey, "")
         val port = context.dataStore.get(ListenTogetherP2PPortKey, P2PPartnerConfig.DEFAULT_P2P_PORT)
+        val defaultName = Build.MODEL?.take(16) ?: "Echo Device"
+        val savedName = context.dataStore.get(ListenTogetherP2PDeviceNameKey, defaultName)
+
         _savedPartnerAddress.value = partnerIp
         _localPort.value = port
+        _deviceName.value = savedName.ifBlank { defaultName }
+    }
+
+    fun saveDeviceName(name: String) {
+        val trimmed = name.trim().ifBlank { Build.MODEL ?: "Echo Device" }
+        _deviceName.value = trimmed
+        p2pServer?.serverDeviceName = trimmed
+        scope.launch {
+            context.dataStore.edit { prefs ->
+                prefs[ListenTogetherP2PDeviceNameKey] = trimmed
+            }
+            if (_isServerRunning.value) {
+                discovery.stopBroadcasting()
+                discovery.startBroadcasting(trimmed)
+            }
+        }
     }
 
     fun savePartnerAddress(address: String) {
-        _savedPartnerAddress.value = address.trim()
+        val trimmed = address.trim()
+        _savedPartnerAddress.value = trimmed
         scope.launch {
             context.dataStore.edit { prefs ->
-                prefs[ListenTogetherP2PPartnerIpKey] = address.trim()
+                prefs[ListenTogetherP2PPartnerIpKey] = trimmed
             }
         }
     }
@@ -83,6 +107,36 @@ class P2PPartnerManager @Inject constructor(
     }
 
     /**
+     * Triggers active scanning for Tailscale and LAN partners.
+     */
+    fun scanForPartners() {
+        scope.launch {
+            val candidates = mutableListOf<String>()
+            val saved = _savedPartnerAddress.value.trim()
+            if (saved.isNotBlank()) {
+                candidates.add(saved)
+            }
+
+            // If we have a Tailscale IP (e.g. 100.99.1.23), add subnet scan targets (100.99.1.x)
+            val ipList = discovery.getDeviceIpAddresses()
+            val tailscaleIp = ipList.firstOrNull { it.second }?.first
+            if (tailscaleIp != null && tailscaleIp.startsWith("100.")) {
+                val prefix = tailscaleIp.substringBeforeLast(".")
+                val lastOctet = tailscaleIp.substringAfterLast(".").toIntOrNull() ?: 1
+                // Add nearby host IPs in the same subnet
+                for (offset in 1..25) {
+                    val candidate1 = "$prefix.$offset"
+                    val candidate2 = "$prefix.${(lastOctet + offset) % 254}"
+                    candidates.add(candidate1)
+                    candidates.add(candidate2)
+                }
+            }
+
+            discovery.scanTailscalePartners(candidates, _deviceName.value)
+        }
+    }
+
+    /**
      * Starts the embedded local P2P WebSocket server.
      */
     @Synchronized
@@ -94,12 +148,24 @@ class P2PPartnerManager @Inject constructor(
 
         return try {
             _status.value = P2PConnectionStatus.STARTING_SERVER
-            val server = P2PWebSocketServer(port)
+            val server = P2PWebSocketServer(port).apply {
+                serverDeviceName = _deviceName.value
+                onPeerJoinedListener = { peerName ->
+                    Timber.tag(TAG).i("Peer joined server: $peerName, connecting local client if not connected")
+                    val currentClientState = client.connectionState.value
+                    if (!isIntentionalDisconnect && currentClientState != ConnectionState.CONNECTED && currentClientState != ConnectionState.CONNECTING) {
+                        scope.launch {
+                            val localUrl = "ws://127.0.0.1:$port"
+                            client.connectDirect(localUrl, _deviceName.value)
+                        }
+                    }
+                }
+            }
             server.start()
             p2pServer = server
             _isServerRunning.value = true
             _status.value = P2PConnectionStatus.SERVER_RUNNING
-            discovery.startBroadcasting()
+            discovery.startBroadcasting(_deviceName.value)
             Timber.tag(TAG).i("P2P Server successfully started on port $port")
             true
         } catch (e: Exception) {
@@ -129,17 +195,21 @@ class P2PPartnerManager @Inject constructor(
     /**
      * Connects directly to a partner's IP/hostname or local server in P2P mode.
      */
-    fun connectToPartner(partnerAddress: String = _savedPartnerAddress.value, username: String = "Partner") {
+    fun connectToPartner(partnerAddress: String = _savedPartnerAddress.value, username: String = _deviceName.value) {
         isIntentionalDisconnect = false
-        savePartnerAddress(partnerAddress)
+        val cleanAddr = partnerAddress.trim()
+        savePartnerAddress(cleanAddr)
 
         scope.launch {
-            // 1. Ensure local server is active for symmetrical hosting
-            startLocalServer()
-
-            // 2. Format WebSocket target URL
-            val targetHost = partnerAddress.trim().ifEmpty { "127.0.0.1" }
+            // 1. Format WebSocket target URL
+            val targetHost = cleanAddr.ifEmpty { "127.0.0.1" }
             val cleanHost = targetHost.removePrefix("ws://").removePrefix("wss://").removePrefix("http://").removePrefix("https://")
+            val isLocalhost = cleanHost.startsWith("127.0.0.1") || cleanHost.startsWith("localhost")
+
+            if (isLocalhost) {
+                startLocalServer()
+            }
+
             val targetUrl = if (cleanHost.contains(":")) {
                 "ws://$cleanHost"
             } else {
@@ -147,12 +217,12 @@ class P2PPartnerManager @Inject constructor(
             }
 
             _status.value = P2PConnectionStatus.CONNECTING_TO_PEER
-            Timber.tag(TAG).i("Connecting to P2P partner target: $targetUrl")
+            Timber.tag(TAG).i("Connecting to P2P partner target: $targetUrl as $username")
 
-            // 3. Connect client using ListenTogetherClient directly to target URL
+            // 2. Connect client directly to target URL
             client.connectDirect(targetUrl, username)
 
-            // 4. Start auto-reconnect guardian
+            // 3. Start auto-reconnect guardian for target URL
             startAutoReconnectGuardian(targetUrl, username)
         }
     }
@@ -160,7 +230,7 @@ class P2PPartnerManager @Inject constructor(
     /**
      * Host a standalone local P2P session and connect locally.
      */
-    fun hostLocalSession(username: String = "Host") {
+    fun hostLocalSession(username: String = _deviceName.value) {
         isIntentionalDisconnect = false
         scope.launch {
             startLocalServer()
@@ -184,16 +254,23 @@ class P2PPartnerManager @Inject constructor(
 
     private fun startAutoReconnectGuardian(targetUrl: String, username: String) {
         autoReconnectJob?.cancel()
+        var attempts = 0
         autoReconnectJob = scope.launch {
-            while (!isIntentionalDisconnect) {
+            while (!isIntentionalDisconnect && attempts < 3) {
                 delay(RECONNECT_INTERVAL_MS)
                 val currentState = client.connectionState.value
+                val connectedPeersOnServer = p2pServer?.connectedPeerCount?.value ?: 0
+                
                 if (!isIntentionalDisconnect && 
-                    (currentState == ConnectionState.DISCONNECTED || currentState == ConnectionState.ERROR)
+                    currentState == ConnectionState.ERROR &&
+                    connectedPeersOnServer == 0
                 ) {
-                    Timber.tag(TAG).i("P2P auto-reconnecting to partner: $targetUrl")
+                    attempts++
+                    Timber.tag(TAG).i("P2P auto-reconnecting to partner: $targetUrl (attempt $attempts/3)")
                     _status.value = P2PConnectionStatus.RECONNECTING
                     client.connectDirect(targetUrl, username)
+                } else if (currentState == ConnectionState.CONNECTED) {
+                    attempts = 0
                 }
             }
         }

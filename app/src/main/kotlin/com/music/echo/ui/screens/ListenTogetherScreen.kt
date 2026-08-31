@@ -150,9 +150,6 @@ fun ListenTogetherScreen(
     }
 
     LaunchedEffect(listenTogetherManager) {
-        if (connectionState == ConnectionState.DISCONNECTED || connectionState == ConnectionState.ERROR) {
-            listenTogetherManager.connect()
-        }
         listenTogetherManager.events.collect { event ->
             when (event) {
                 is ListenTogetherEvent.JoinRejected -> {
@@ -808,6 +805,25 @@ private fun RoomStatusCard(
                         Text(stringResource(R.string.copy_code))
                     }
                 }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = { navController.navigate("listen_together/chat") },
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.chat_msg),
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Open In-Room Chat & Reactions", fontWeight = FontWeight.Bold)
             }
         }
     }

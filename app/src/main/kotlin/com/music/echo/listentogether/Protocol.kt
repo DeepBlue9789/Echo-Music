@@ -49,6 +49,16 @@ object MessageTypes {
     const val SUGGESTION_APPROVED = "suggestion_approved"
     const val SUGGESTION_REJECTED = "suggestion_rejected"
     const val ROOM_SETTINGS_CHANGED = "room_settings_changed"
+    
+    // Virtual Timeline Sync Protocol
+    const val CLOCK_SYNC_REQ = "CLOCK_SYNC_REQ"
+    const val CLOCK_SYNC_RES = "CLOCK_SYNC_RES"
+    const val PLAY_SCHEDULED = "PLAY_SCHEDULED"
+    const val PAUSE_COMMAND = "PAUSE_COMMAND"
+    const val SEEK_COMMAND = "SEEK_COMMAND"
+    const val BUFFER_LOCK = "BUFFER_LOCK"
+    const val BUFFER_READY_EVENT = "BUFFER_READY_EVENT"
+    const val SESSION_SNAPSHOT = "SESSION_SNAPSHOT"
 }
 
 
@@ -106,7 +116,8 @@ data class RoomState(
     @SerialName("last_update") val lastUpdate: Long, 
     val volume: Float = 1f,
     val queue: List<TrackInfo> = emptyList(),
-    @SerialName("allow_participant_control") val allowParticipantControl: Boolean = false
+    @SerialName("allow_participant_control") val allowParticipantControl: Boolean = false,
+    @SerialName("state_version") val stateVersion: Long = 0L
 )
 
 @Serializable
@@ -148,7 +159,13 @@ data class PlaybackActionPayload(
     val queue: List<TrackInfo>? = null,
     @SerialName("queue_title") val queueTitle: String? = null,
     val volume: Float? = null,
-    @SerialName("server_time") val serverTime: Long? = null
+    @SerialName("server_time") val serverTime: Long? = null,
+    @SerialName("state_version") val stateVersion: Long = 0L
+)
+
+@Serializable
+data class PongPayload(
+    @SerialName("server_time") val serverTime: Long = 0L
 )
 
 @Serializable
@@ -176,7 +193,8 @@ data class ChatPayload(
 @Serializable
 data class RepliedMessage(
     val username: String,
-    val message: String
+    val message: String,
+    val thumbnail: String? = null
 )
 
 
@@ -280,7 +298,8 @@ data class ChatMessagePayload(
     val username: String,
     val message: String,
     val timestamp: Long,
-    @SerialName("reply_to") val replyTo: RepliedMessage? = null
+    @SerialName("reply_to") val replyTo: RepliedMessage? = null,
+    @SerialName("track_info") val trackInfo: TrackInfo? = null
 )
 
 @Serializable
@@ -302,7 +321,8 @@ data class SyncStatePayload(
     val position: Long,
     @SerialName("last_update") val lastUpdate: Long,
     val queue: List<TrackInfo>? = null,
-    val volume: Float? = null
+    val volume: Float? = null,
+    @SerialName("state_version") val stateVersion: Long = 0L
 )
 
 
@@ -330,4 +350,67 @@ data class UserReconnectedPayload(
 data class UserDisconnectedPayload(
     @SerialName("user_id") val userId: String,
     val username: String
+)
+
+// -------------------------------------------------------------
+// Virtual Timeline Models & Mathematical Synchronization Engine
+// -------------------------------------------------------------
+
+@Serializable
+data class ClockSyncRequestPayload(
+    @SerialName("client_t1") val clientT1: Long
+)
+
+@Serializable
+data class ClockSyncResponsePayload(
+    @SerialName("client_t1") val clientT1: Long,
+    @SerialName("server_t2") val serverT2: Long,
+    @SerialName("server_t3") val serverT3: Long
+)
+
+@Serializable
+data class PlayScheduledPayload(
+    @SerialName("seq_id") val seqId: Long,
+    @SerialName("execute_at") val executeAt: Long, // Synchronized network epoch timestamp (ms)
+    @SerialName("start_position") val startPosition: Double // Track position in seconds
+)
+
+@Serializable
+data class PauseCommandPayload(
+    @SerialName("seq_id") val seqId: Long,
+    @SerialName("pause_position") val pausePosition: Double, // Authoritative track position in seconds
+    @SerialName("server_timestamp") val serverTimestamp: Long
+)
+
+@Serializable
+data class SeekCommandPayload(
+    @SerialName("seq_id") val seqId: Long,
+    @SerialName("target_position") val targetPosition: Double,
+    @SerialName("auto_play") val autoPlay: Boolean,
+    @SerialName("execute_at") val executeAt: Long? = null
+)
+
+@Serializable
+data class BufferLockPayload(
+    @SerialName("client_id") val clientId: String,
+    val position: Double
+)
+
+@Serializable
+data class BufferReadyEventPayload(
+    @SerialName("client_id") val clientId: String,
+    @SerialName("buffered_ahead_seconds") val bufferedAheadSeconds: Double
+)
+
+@Serializable
+data class SessionSnapshotPayload(
+    @SerialName("seq_id") val seqId: Long,
+    @SerialName("is_playing") val isPlaying: Boolean,
+    @SerialName("ref_timestamp") val refTimestamp: Long,
+    @SerialName("ref_position") val refPosition: Double,
+    @SerialName("playback_rate") val playbackRate: Double,
+    @SerialName("track_id") val trackId: String?,
+    @SerialName("track_info") val trackInfo: TrackInfo? = null,
+    val queue: List<TrackInfo> = emptyList(),
+    @SerialName("server_time") val serverTime: Long
 )

@@ -11,6 +11,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.PowerManager
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.annotation.RequiresPermission
 import androidx.core.app.ActivityCompat
@@ -129,6 +130,14 @@ sealed class ListenTogetherEvent {
     data class LocalSuggestionApproved(val payload: SuggestionReceivedPayload) : ListenTogetherEvent()
 
     data class RoomSettingsChanged(val allowParticipantControl: Boolean) : ListenTogetherEvent()
+
+    // Virtual Timeline Sync Events
+    data class PlayScheduled(val payload: PlayScheduledPayload) : ListenTogetherEvent()
+    data class PauseCommand(val payload: PauseCommandPayload) : ListenTogetherEvent()
+    data class SeekCommand(val payload: SeekCommandPayload) : ListenTogetherEvent()
+    data class BufferLock(val payload: BufferLockPayload) : ListenTogetherEvent()
+    data class BufferReadyEvent(val payload: BufferReadyEventPayload) : ListenTogetherEvent()
+    data class SessionSnapshot(val payload: SessionSnapshotPayload) : ListenTogetherEvent()
 }
 
 
@@ -173,6 +182,8 @@ class ListenTogetherClient @Inject constructor(
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
+    private var directTargetUrl: String? = null
+
     private val _roomState = MutableStateFlow<RoomState?>(null)
     val roomState: StateFlow<RoomState?> = _roomState.asStateFlow()
 
@@ -209,6 +220,24 @@ class ListenTogetherClient @Inject constructor(
     private val _rtt = MutableStateFlow(0L)
     val rtt: StateFlow<Long> = _rtt.asStateFlow()
     
+    private val _serverTimeOffset = MutableStateFlow(0L)
+    val serverTimeOffset: StateFlow<Long> = _serverTimeOffset.asStateFlow()
+    
+    val clockSynchronizer by lazy { ClockSynchronizer(this, scope) }
+
+    fun updateServerTimeOffset(offset: Long, rtt: Long) {
+        _serverTimeOffset.value = offset
+        _rtt.value = rtt
+    }
+
+    fun toNetworkTime(localMonotonicMs: Long = SystemClock.elapsedRealtime()): Long {
+        return localMonotonicMs + _serverTimeOffset.value
+    }
+
+    fun toLocalMonotonicTime(networkTimeMs: Long): Long {
+        return networkTimeMs - _serverTimeOffset.value
+    }
+    
     init {
         setInstance(this)
         ensureNotificationChannel()
@@ -234,10 +263,10 @@ class ListenTogetherClient @Inject constructor(
                         if (_connectionState.value == ConnectionState.ERROR || 
                             _connectionState.value == ConnectionState.DISCONNECTED) {
                             
-                            if (sessionToken != null || _roomState.value != null || pendingAction != null) {
-                                log(LogLevel.INFO, "Network restored, triggering reconnection")
+                            if (_roomState.value != null && directTargetUrl != null) {
+                                log(LogLevel.INFO, "Network restored, triggering P2P reconnection")
                                 reconnectAttempts = 0 
-                                connect()
+                                connectDirect(directTargetUrl!!, storedUsername ?: "Echo Device")
                             }
                         }
                     } else if (!available && previous) {
@@ -437,6 +466,7 @@ class ListenTogetherClient @Inject constructor(
             webSocket = null
         }
 
+        directTargetUrl = targetUrl
         _connectionState.value = ConnectionState.CONNECTING
         storedUsername = username
         log(LogLevel.INFO, "Connecting directly to P2P endpoint", targetUrl)
@@ -455,6 +485,7 @@ class ListenTogetherClient @Inject constructor(
                 _connectionState.value = ConnectionState.CONNECTED
                 reconnectAttempts = 0
                 startPingJob()
+                clockSynchronizer.start()
                 
                 sendMessage(MessageTypes.JOIN_ROOM, JoinRoomPayload("P2P-MESH", username))
             }
@@ -510,6 +541,7 @@ class ListenTogetherClient @Inject constructor(
                 _connectionState.value = ConnectionState.CONNECTED
                 reconnectAttempts = 0
                 startPingJob()
+                clockSynchronizer.start()
                 
                 
                 if (sessionToken != null && storedRoomCode != null) {
@@ -575,6 +607,7 @@ class ListenTogetherClient @Inject constructor(
         _connectionState.value = ConnectionState.DISCONNECTED
         
         
+        directTargetUrl = null
         sessionToken = null
         storedRoomCode = null
         storedUsername = null
@@ -722,13 +755,18 @@ class ListenTogetherClient @Inject constructor(
     private fun handleDisconnect() {
         pingJob?.cancel()
         pingJob = null
-        
-        
+        clockSynchronizer.stop()
         
         _connectionState.value = ConnectionState.DISCONNECTED
         _pendingJoinRequests.value = emptyList()
         _bufferingUsers.value = emptyList()
         
+        if (directTargetUrl != null || _roomState.value?.roomCode == "P2P-MESH") {
+            log(LogLevel.INFO, "P2P session disconnected, skipping reconnect loop")
+            _roomState.value = null
+            scope.launch { _events.emit(ListenTogetherEvent.Disconnected) }
+            return
+        }
         
         if (sessionToken != null && _roomState.value != null) {
             log(LogLevel.INFO, "Connection lost, will attempt to reconnect")
@@ -741,7 +779,15 @@ class ListenTogetherClient @Inject constructor(
     private fun handleConnectionFailure(t: Throwable) {
         pingJob?.cancel()
         pingJob = null
+        clockSynchronizer.stop()
         
+        if (directTargetUrl != null || _roomState.value?.roomCode == "P2P-MESH") {
+            log(LogLevel.INFO, "P2P connection failure, skipping reconnect loop", t.message)
+            _roomState.value = null
+            _connectionState.value = ConnectionState.DISCONNECTED
+            scope.launch { _events.emit(ListenTogetherEvent.Disconnected) }
+            return
+        }
         
         val shouldReconnect = sessionToken != null || _roomState.value != null || pendingAction != null
         
@@ -768,7 +814,11 @@ class ListenTogetherClient @Inject constructor(
                 
                 if (_connectionState.value == ConnectionState.RECONNECTING || _connectionState.value == ConnectionState.DISCONNECTED) {
                     log(LogLevel.INFO, "Reconnecting after backoff", "Delay was ${delaySeconds}s")
-                    connect()
+                    if (directTargetUrl != null) {
+                        connectDirect(directTargetUrl!!, storedUsername ?: "Partner")
+                    } else {
+                        connect()
+                    }
                 }
             }
         } else {
@@ -803,12 +853,16 @@ class ListenTogetherClient @Inject constructor(
         log(LogLevel.DEBUG, "Received message", "${data.size} bytes")
         
         try {
-            
-            val detectedFormat = MessageCodec.detectMessageFormat(data)
-            if (detectedFormat == MessageFormat.PROTOBUF && codec.format == MessageFormat.JSON) {
-                codec.format = MessageFormat.PROTOBUF
-                codec.compressionEnabled = true
-                log(LogLevel.INFO, "Upgraded to Protobuf", "with compression")
+            val detectedFormat = if (directTargetUrl != null) {
+                MessageFormat.JSON
+            } else {
+                val format = MessageCodec.detectMessageFormat(data)
+                if (format == MessageFormat.PROTOBUF && codec.format == MessageFormat.JSON) {
+                    codec.format = MessageFormat.PROTOBUF
+                    codec.compressionEnabled = true
+                    log(LogLevel.INFO, "Upgraded to Protobuf", "with compression")
+                }
+                format
             }
             
             
@@ -884,21 +938,23 @@ class ListenTogetherClient @Inject constructor(
                 
                 MessageTypes.JOIN_APPROVED -> {
                     val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? JoinApprovedPayload ?: return
+                    val isHostUser = (payload.state.hostId == payload.userId) ||
+                        (payload.state.users.find { it.userId == payload.userId }?.isHost == true)
                     _userId.value = payload.userId
-                    _role.value = RoomRole.GUEST
+                    _role.value = if (isHostUser) RoomRole.HOST else RoomRole.GUEST
                     sessionToken = payload.sessionToken
                     storedRoomCode = payload.roomCode
-                    wasHost = false
+                    wasHost = isHostUser
                     sessionStartTime = System.currentTimeMillis()
                     
-                    _roomState.value = payload.state
-                    
+                    val deduplicatedUsers = payload.state.users.distinctBy { it.username }
+                    _roomState.value = payload.state.copy(users = deduplicatedUsers)
                     
                     savePersistedSession()
                     
                     acquireWakeLock() 
-                    log(LogLevel.INFO, "Joined room", "Code: ${payload.roomCode}")
-                    scope.launch { _events.emit(ListenTogetherEvent.JoinApproved(payload.roomCode, payload.userId, payload.state)) }
+                    log(LogLevel.INFO, "Joined room", "Code: ${payload.roomCode}, isHost: $isHostUser")
+                    scope.launch { _events.emit(ListenTogetherEvent.JoinApproved(payload.roomCode, payload.userId, _roomState.value!!)) }
                 }
                 
                 MessageTypes.JOIN_REJECTED -> {
@@ -909,8 +965,10 @@ class ListenTogetherClient @Inject constructor(
                 
                 MessageTypes.USER_JOINED -> {
                     val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? UserJoinedPayload ?: return
+                    val currentUsers = _roomState.value?.users ?: emptyList()
+                    val filtered = currentUsers.filter { it.userId != payload.userId && it.username != payload.username }
                     _roomState.value = _roomState.value?.copy(
-                        users = _roomState.value!!.users + UserInfo(payload.userId, payload.username, false)
+                        users = (filtered + UserInfo(payload.userId, payload.username, false, isConnected = true)).distinctBy { it.username }
                     )
                     _pendingJoinRequests.value = _pendingJoinRequests.value.filter { it.userId != payload.userId }
                     
@@ -1127,11 +1185,16 @@ class ListenTogetherClient @Inject constructor(
                 }
                 
                 MessageTypes.PONG -> {
+                    val pongPayload = payloadBytes.let {
+                        try {
+                            codec.decodePayload(msgType, it, detectedFormat) as? PongPayload
+                        } catch (e: Exception) { null }
+                    }
                     if (pingSentTime > 0) {
                         val currentRtt = System.currentTimeMillis() - pingSentTime
                         _rtt.value = currentRtt
-                        pingSentTime = 0
                         log(LogLevel.DEBUG, "Pong received", "RTT: ${currentRtt}ms")
+                        pingSentTime = 0
                     } else {
                         log(LogLevel.DEBUG, "Pong received")
                     }
@@ -1190,13 +1253,12 @@ class ListenTogetherClient @Inject constructor(
                             val endIdx = payload.message.indexOf("]\u200B")
                             if (endIdx != -1) {
                                 val encoded = payload.message.substring(7, endIdx)
-                                val decoded = String(Base64.decode(encoded, Base64.NO_WRAP))
-                                val parts = decoded.split("|", limit = 2)
-                                if (parts.size == 2) {
-                                    val replyTo = RepliedMessage(parts[0], parts[1])
-                                    val actualMessage = payload.message.substring(endIdx + 2)
-                                    payload = payload.copy(message = actualMessage, replyTo = replyTo)
-                                }
+                                val decoded = String(Base64.decode(encoded, Base64.NO_WRAP), Charsets.UTF_8)
+                                val parts = decoded.split("|", limit = 3)
+                                val thumb = if (parts.size >= 3 && parts[2].isNotBlank()) parts[2] else null
+                                val replyTo = RepliedMessage(parts[0], parts.getOrElse(1) { "" }, thumb)
+                                val actualMessage = payload.message.substring(endIdx + 2)
+                                payload = payload.copy(message = actualMessage, replyTo = replyTo)
                             }
                         } catch (e: Exception) {
                             log(LogLevel.WARNING, "Failed to decode embedded reply", e.message)
@@ -1216,6 +1278,45 @@ class ListenTogetherClient @Inject constructor(
                     scope.launch {
                         _events.emit(ListenTogetherEvent.RoomSettingsChanged(payload.allowParticipantControl))
                     }
+                }
+
+                MessageTypes.CLOCK_SYNC_RES -> {
+                    val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? ClockSyncResponsePayload ?: return
+                    clockSynchronizer.onSyncResponse(payload)
+                }
+
+                MessageTypes.PLAY_SCHEDULED -> {
+                    val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? PlayScheduledPayload ?: return
+                    log(LogLevel.INFO, "PLAY_SCHEDULED received", "execute_at=${payload.executeAt}, pos=${payload.startPosition}")
+                    scope.launch { _events.emit(ListenTogetherEvent.PlayScheduled(payload)) }
+                }
+
+                MessageTypes.PAUSE_COMMAND -> {
+                    val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? PauseCommandPayload ?: return
+                    log(LogLevel.INFO, "PAUSE_COMMAND received", "pos=${payload.pausePosition}, seq=${payload.seqId}")
+                    scope.launch { _events.emit(ListenTogetherEvent.PauseCommand(payload)) }
+                }
+
+                MessageTypes.SEEK_COMMAND -> {
+                    val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? SeekCommandPayload ?: return
+                    log(LogLevel.INFO, "SEEK_COMMAND received", "pos=${payload.targetPosition}, autoPlay=${payload.autoPlay}")
+                    scope.launch { _events.emit(ListenTogetherEvent.SeekCommand(payload)) }
+                }
+
+                MessageTypes.BUFFER_LOCK -> {
+                    val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? BufferLockPayload ?: return
+                    scope.launch { _events.emit(ListenTogetherEvent.BufferLock(payload)) }
+                }
+
+                MessageTypes.BUFFER_READY_EVENT -> {
+                    val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? BufferReadyEventPayload ?: return
+                    scope.launch { _events.emit(ListenTogetherEvent.BufferReadyEvent(payload)) }
+                }
+
+                MessageTypes.SESSION_SNAPSHOT -> {
+                    val payload = codec.decodePayload(msgType, payloadBytes, detectedFormat) as? SessionSnapshotPayload ?: return
+                    log(LogLevel.INFO, "SESSION_SNAPSHOT received", "playing=${payload.isPlaying}, rate=${payload.playbackRate}, pos=${payload.refPosition}")
+                    scope.launch { _events.emit(ListenTogetherEvent.SessionSnapshot(payload)) }
                 }
 
                 else -> {
@@ -1299,23 +1400,12 @@ class ListenTogetherClient @Inject constructor(
 
     
     fun leaveRoom() {
-        sendMessageNoPayload(MessageTypes.LEAVE_ROOM)
-        
-        
-        sessionToken = null
-        storedRoomCode = null
-        storedUsername = null
-        pendingAction = null
-        _roomState.value = null
-        _role.value = RoomRole.NONE
-        _userId.value = null
-        _pendingJoinRequests.value = emptyList()
-        _bufferingUsers.value = emptyList()
-        
-        
-        clearPersistedSession()
-        
-        releaseWakeLock()
+        try {
+            sendMessageNoPayload(MessageTypes.LEAVE_ROOM)
+        } catch (e: Exception) {
+            // ignore if already disconnected
+        }
+        disconnect()
     }
 
     
@@ -1409,8 +1499,8 @@ class ListenTogetherClient @Inject constructor(
         
         
         val finalMessage = if (replyTo != null) {
-            val metadata = "${replyTo.username}|${replyTo.message}"
-            val encoded = Base64.encodeToString(metadata.toByteArray(), Base64.NO_WRAP)
+            val metadata = "${replyTo.username}|${replyTo.message}|${replyTo.thumbnail ?: ""}"
+            val encoded = Base64.encodeToString(metadata.toByteArray(Charsets.UTF_8), Base64.NO_WRAP)
             "\u200B[RPLY:$encoded]\u200B$message"
         } else {
             message
@@ -1422,6 +1512,38 @@ class ListenTogetherClient @Inject constructor(
     
     fun sendBufferReady(trackId: String) {
         sendMessage(MessageTypes.BUFFER_READY, BufferReadyPayload(trackId))
+    }
+
+    fun sendBufferWait(trackId: String) {
+        sendMessage(MessageTypes.BUFFER_WAIT, BufferWaitPayload(trackId, listOf(_userId.value ?: "")))
+    }
+
+    fun sendClockSyncRequest(clientT1: Long) {
+        sendMessage(MessageTypes.CLOCK_SYNC_REQ, ClockSyncRequestPayload(clientT1))
+    }
+
+    fun sendPlayScheduled(seqId: Long, executeAt: Long, startPosition: Double) {
+        sendMessage(MessageTypes.PLAY_SCHEDULED, PlayScheduledPayload(seqId, executeAt, startPosition))
+    }
+
+    fun sendPauseCommand(seqId: Long, pausePosition: Double, serverTimestamp: Long) {
+        sendMessage(MessageTypes.PAUSE_COMMAND, PauseCommandPayload(seqId, pausePosition, serverTimestamp))
+    }
+
+    fun sendSeekCommand(seqId: Long, targetPosition: Double, autoPlay: Boolean, executeAt: Long? = null) {
+        sendMessage(MessageTypes.SEEK_COMMAND, SeekCommandPayload(seqId, targetPosition, autoPlay, executeAt))
+    }
+
+    fun sendBufferLock(position: Double) {
+        sendMessage(MessageTypes.BUFFER_LOCK, BufferLockPayload(_userId.value ?: "unknown", position))
+    }
+
+    fun sendBufferReadyEvent(bufferedAheadSeconds: Double) {
+        sendMessage(MessageTypes.BUFFER_READY_EVENT, BufferReadyEventPayload(_userId.value ?: "unknown", bufferedAheadSeconds))
+    }
+
+    fun requestSessionSnapshot() {
+        sendMessageNoPayload(MessageTypes.REQUEST_SYNC)
     }
 
     
@@ -1571,5 +1693,106 @@ class ListenTogetherClient @Inject constructor(
         System.currentTimeMillis() - sessionStartTime
     } else {
         0L
+    }
+}
+
+// -------------------------------------------------------------
+// ClockSynchronizer: Cristian's Algorithm with Monotonic Time
+// -------------------------------------------------------------
+
+data class ClockSample(
+    val rtt: Long,
+    val offset: Long
+)
+
+class ClockSynchronizer(
+    private val client: ListenTogetherClient,
+    private val scope: CoroutineScope
+) {
+    companion object {
+        private const val TAG = "ClockSynchronizer"
+        private const val BURST_COUNT = 8
+        private const val SYNC_INTERVAL_MS = 30_000L
+        private const val EMA_ALPHA = 0.2
+    }
+
+    private val samples = mutableListOf<ClockSample>()
+    private var syncJob: Job? = null
+
+    fun start() {
+        syncJob?.cancel()
+        syncJob = scope.launch(Dispatchers.IO) {
+            // Initial burst of 8 pings
+            runBurst(isInitial = true)
+
+            // Periodic 30s background sync
+            while (client.connectionState.value == ConnectionState.CONNECTED) {
+                delay(SYNC_INTERVAL_MS)
+                runBurst(isInitial = false)
+            }
+        }
+    }
+
+    fun stop() {
+        syncJob?.cancel()
+        syncJob = null
+        synchronized(samples) { samples.clear() }
+    }
+
+    private suspend fun runBurst(isInitial: Boolean) {
+        synchronized(samples) { samples.clear() }
+        for (i in 0 until BURST_COUNT) {
+            if (client.connectionState.value != ConnectionState.CONNECTED) break
+            val t1 = SystemClock.elapsedRealtime()
+            client.sendClockSyncRequest(t1)
+            delay(50L)
+        }
+        delay(300L) // Wait for responses
+        processSamples(isInitial)
+    }
+
+    fun onSyncResponse(res: ClockSyncResponsePayload) {
+        val t4 = SystemClock.elapsedRealtime()
+        val t1 = res.clientT1
+        val t2 = res.serverT2
+        val t3 = res.serverT3
+
+        // Formula: RTT = (T4 - T1) - (T3 - T2)
+        val rtt = ((t4 - t1) - (t3 - t2)).coerceAtLeast(1L)
+        // Formula: theta = ((T2 - T1) + (T3 - T4)) / 2
+        val offset = ((t2 - t1) + (t3 - t4)) / 2
+
+        synchronized(samples) {
+            samples.add(ClockSample(rtt, offset))
+        }
+    }
+
+    private fun processSamples(isInitial: Boolean) {
+        val currentSamples = synchronized(samples) { samples.toList() }
+        if (currentSamples.isEmpty()) return
+
+        val minRtt = currentSamples.minOf { it.rtt }
+        val rttThreshold = (minRtt * 1.5).toLong()
+
+        // Discard samples with RTT > 1.5 * min(RTT)
+        val validSamples = currentSamples.filter { it.rtt <= rttThreshold }
+        if (validSamples.isEmpty()) return
+
+        // Take median offset of remaining samples
+        val sortedOffsets = validSamples.map { it.offset }.sorted()
+        val medianOffset = sortedOffsets[sortedOffsets.size / 2]
+
+        val prevOffset = client.serverTimeOffset.value
+        val smoothedOffset = if (isInitial || prevOffset == 0L || kotlin.math.abs(prevOffset - medianOffset) > 2000L) {
+            medianOffset
+        } else {
+            ((1.0 - EMA_ALPHA) * prevOffset + EMA_ALPHA * medianOffset).toLong()
+        }
+        client.updateServerTimeOffset(smoothedOffset, minRtt)
+        if (isInitial || prevOffset == 0L) {
+            Timber.tag(TAG).d("ClockSynchronizer: Initial burst sync complete. Samples=${validSamples.size}/$BURST_COUNT, minRTT=${minRtt}ms, offset=${medianOffset}ms")
+        } else {
+            Timber.tag(TAG).d("ClockSynchronizer: Background sync updated. minRTT=${minRtt}ms, rawOffset=${medianOffset}ms, smoothedOffset=${smoothedOffset}ms")
+        }
     }
 }
