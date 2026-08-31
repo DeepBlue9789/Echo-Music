@@ -57,6 +57,8 @@ the agent full context without re-scanning the whole codebase every session.
 > 4. **Update `AGENT.md` and docs** if module structure, conventions, or
 >    architecture changed — stale context is a bug.
 
+> **Build & Installation rule:** During development, if you are asked to assemble or install the app, or if you are doing so autonomously for testing, **always use the Universal GMS variant** (e.g., `./gradlew assembleUniversalGmsDebug` or `./gradlew installUniversalGmsDebug`).
+
 ### UI rule: Custom Echo Music Aesthetic (over Material You)
 
 All UI work — new screens, new components, and edits to existing ones —
