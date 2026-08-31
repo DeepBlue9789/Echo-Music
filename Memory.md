@@ -15,6 +15,8 @@
   - Release APK: `./gradlew assembleUniversalGmsRelease`
 - **Release Output Path**: `app/build/outputs/apk/universalGms/release/app-universal-gms-release.apk`
 - **In-App Updater API Endpoint**: `https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest`
+- **In-App Changelog API Endpoint**: `https://api.github.com/repos/DeepBlue9789/Echo-Music/releases`
+- **In-App Commit History API Endpoint**: `https://api.github.com/repos/DeepBlue9789/Echo-Music/commits?branch=main`
 
 ---
 
