@@ -236,6 +236,16 @@ If Echo Music has been useful to you, consider supporting its development.
 
 ---
 
+## Contributors
+
+Without the support of this incredible open-source community, none of this would be possible. Thank you to everyone who has contributed to Echo Music!
+
+<a href="https://github.com/EchoMusicApp/Echo-Music/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=EchoMusicApp/Echo-Music" />
+</a>
+
+---
+
 ## Special Thanks
 
 Echo Music stands on the shoulders of several excellent open-source projects. Sincere thanks to:
