@@ -627,13 +627,17 @@ private fun formatGitHubDate(githubDate: String): String = try {
 
 
 fun isNewerVersion(latestVersion: String, currentVersion: String): Boolean {
-    val latestVersionClean = latestVersion.removePrefix("b").removePrefix("v")
-    val currentVersionClean = currentVersion.removePrefix("b").removePrefix("v")
+    val latestVersionClean = latestVersion.removePrefix("b").removePrefix("v").trim()
+    val currentVersionClean = currentVersion.removePrefix("b").removePrefix("v").trim()
 
-    val latestParts = latestVersionClean.split(".").map { it.toIntOrNull() ?: 0 }
-    val currentParts = currentVersionClean.split(".").map { it.toIntOrNull() ?: 0 }
-    
-    
+    if (latestVersionClean.equals(currentVersionClean, ignoreCase = true)) return false
+
+    val latestNumeric = latestVersionClean.split("-").first().split("+").first().trim()
+    val currentNumeric = currentVersionClean.split("-").first().split("+").first().trim()
+
+    val latestParts = latestNumeric.split(".").map { it.toIntOrNull() ?: 0 }
+    val currentParts = currentNumeric.split(".").map { it.toIntOrNull() ?: 0 }
+
     for (i in 0 until maxOf(latestParts.size, currentParts.size)) {
         val latest = latestParts.getOrElse(i) { 0 }
         val current = currentParts.getOrElse(i) { 0 }
@@ -642,15 +646,14 @@ fun isNewerVersion(latestVersion: String, currentVersion: String): Boolean {
             latest < current -> return false
         }
     }
-    
-    
+
     if (latestVersionClean == currentVersionClean) {
-        val latestIsBeta = latestVersion.startsWith("b")
-        val currentIsBeta = currentVersion.startsWith("b")
-        
+        val latestIsBeta = latestVersion.startsWith("b", ignoreCase = true)
+        val currentIsBeta = currentVersion.startsWith("b", ignoreCase = true)
+
         if (currentIsBeta && !latestIsBeta) return true
     }
-    
+
     return false
 }
 
@@ -668,9 +671,7 @@ suspend fun checkForUpdate(
             
             val currentVersion = BuildConfig.VERSION_NAME
             val targetTagName = targetRelease.getString("tag_name")
-            val currentClean = currentVersion.removePrefix("b").removePrefix("v").trim()
-            val targetClean = targetTagName.removePrefix("b").removePrefix("v").trim()
-            val shouldShow = currentClean != targetClean
+            val shouldShow = isNewerVersion(targetTagName, currentVersion)
 
             if (shouldShow) {
                 val tagWithPrefix = targetRelease.getString("tag_name")
