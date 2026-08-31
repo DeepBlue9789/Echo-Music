@@ -174,3 +174,8 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - **Single-Shot Barrier Guard**: `if (currentBufferingTrackId == null) return` prevents repeated barrier firing loops on track changes.
 - **Immediate Playback on Pending BufferComplete**: If a device finishes preparing a track and finds `bufferCompleteReceivedForTrack` already set, it plays immediately without pausing.
 - **Transient Buffering Suppression**: `onPlaybackStateChanged` suppresses `BUFFER_WAIT` if `now < resumeGracePeriodUntil`, preventing normal seek or track preparation buffering from triggering unnecessary room stalls.
+
+### C. Track Transition Position Reset & Double Skip Prevention
+- **Virtual Timeline Zeroing on CHANGE_TRACK**: When a track transitions (`PlaybackActions.CHANGE_TRACK`), both `P2PWebSocketServer.kt` and `ListenTogetherManager.kt` explicitly reset `virtualTimelineRefPos = 0.0`, `virtualTimelineRate = 0.0`, and `timelineRefPosSec = 0.0`.
+- **Elimination of Song Cascading Skips**: Previously, `virtualTimelineRefPos` retained the old track's ending position (e.g. `271.019s`). When the next track loaded, `releaseBufferBarrier` scheduled playback at `271.019s`. If the new track's duration was under 271s, ExoPlayer immediately reached `STATE_ENDED` and auto-skipped to the next track (causing 2 songs to skip instantly and guests to freeze in paused state). Zeroing the timeline on every track change ensures new songs start cleanly from 0.000s.
+- **Volatile Thread Visibility**: Marked `resumeGracePeriodUntil` as `@Volatile` and set `isApplyingRemoteState = true` / `isSyncing = true` immediately before coroutine dispatch so `onPlaybackStateChanged` on the Main Looper never sends false `BUFFER_WAIT` messages during seeks.
