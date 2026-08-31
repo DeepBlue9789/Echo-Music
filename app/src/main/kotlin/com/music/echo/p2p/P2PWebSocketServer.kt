@@ -274,6 +274,10 @@ class P2PWebSocketServer(
             }
 
             MessageTypes.BUFFER_READY_EVENT -> {
+                // If room is already playing, never interrupt playback with redundant scheduled play
+                if (virtualTimelineRate > 0.0) {
+                    return
+                }
                 val readyPayload = payload?.let { json.decodeFromJsonElement<BufferReadyEventPayload>(it) } ?: return
                 val session = peerSessions[conn] ?: return
                 bufferedUserIds.add(session.userId)

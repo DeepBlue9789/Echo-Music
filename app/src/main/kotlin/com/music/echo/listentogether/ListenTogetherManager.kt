@@ -323,20 +323,14 @@ class ListenTogetherManager @Inject constructor(
                         }
                     } else if (normBuffering == currentTrackId || isWaitingForPeersBuffer) {
                         Timber.tag(TAG).d("Local playback STATE_READY for track $currentTrackId")
+                        bufferingTrackId = null
+                        isWaitingForPeersBuffer = false
                         client.sendBufferReady(currentTrackId)
-                        client.sendBufferReadyEvent(5.0)
                     }
                 } else if (playbackState == Player.STATE_BUFFERING) {
-                    val now = SystemClock.elapsedRealtime()
-                    if (now < resumeGracePeriodUntil || isSyncing || isApplyingRemoteState) {
-                        return
-                    }
-                    val otherUsersCount = (roomState.value?.users?.size ?: 1) - 1
-                    if (otherUsersCount > 0 && !isWaitingForPeersBuffer && bufferingTrackId == null && lastSyncedIsPlaying == true) {
-                        Timber.tag(TAG).d("Mid-song buffering on this device, notifying peers")
-                        bufferingTrackId = currentTrackId
-                        client.sendBufferWait(currentTrackId)
-                    }
+                    // Mid-track buffering is handled gracefully by ExoPlayer and the Virtual Timeline
+                    // drift slew engine. Do not stall or lock the room for all users during playback.
+                    return
                 }
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Error in onPlaybackStateChanged")
