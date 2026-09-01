@@ -339,6 +339,10 @@ class ListenTogetherClient @Inject constructor(
     
     
     private fun savePersistedSession() {
+        if (storedRoomCode == "P2P-MESH" || directTargetUrl != null) {
+            // P2P sessions are local/ephemeral mesh sessions; do not persist to DataStore
+            return
+        }
         try {
             scope.launch {
                 context.dataStore.edit { preferences ->
@@ -808,8 +812,8 @@ class ListenTogetherClient @Inject constructor(
         } else {
             _connectionState.value = ConnectionState.ERROR
             
-            
-            if (sessionToken != null) {
+            val isP2P = directTargetUrl != null || storedRoomCode == "P2P-MESH"
+            if (sessionToken != null && !isP2P) {
                 log(LogLevel.ERROR, "Reconnection failed", 
                     "Max attempts reached, but session preserved for manual reconnect")
                 scope.launch { 
@@ -818,10 +822,10 @@ class ListenTogetherClient @Inject constructor(
                     ))
                 }
             } else {
-                
                 sessionToken = null
                 storedRoomCode = null
                 storedUsername = null
+                directTargetUrl = null
                 _roomState.value = null
                 _role.value = RoomRole.NONE
                 clearPersistedSession()

@@ -855,8 +855,7 @@ class ListenTogetherManager @Inject constructor(
             
             is ListenTogetherEvent.Disconnected -> {
                 Timber.tag(TAG).d("Disconnected from server")
-                
-                
+                cleanup()
             }
 
             is ListenTogetherEvent.Reconnecting -> {
@@ -1083,7 +1082,13 @@ class ListenTogetherManager @Inject constructor(
         ++currentTrackGeneration  
         stopSyncController()
         scheduledPlayJob?.cancel()
+        timelineRefPosSec = 0.0
+        timelineRefTime = 0L
         timelineRate = 0.0
+        lastAppliedSeqId = 0L
+        isApplyingRemoteState = false
+        pendingSyncState = null
+        resetPlaybackSpeed()
         _chatMessages.value = emptyList() 
     }
 
@@ -2126,8 +2131,8 @@ class ListenTogetherManager @Inject constructor(
     fun leaveRoom() {
         Timber.tag(TAG).d("Leaving room")
         cleanup()
-        p2pPartnerManager.disconnect()
         client.leaveRoom()
+        p2pPartnerManager.disconnect()
     }
 
     fun connectToPartner(partnerAddress: String, username: String) {
@@ -2137,12 +2142,11 @@ class ListenTogetherManager @Inject constructor(
 
     fun hostP2PSession(username: String) {
         Timber.tag(TAG).d("Hosting P2P session as $username")
-        p2pPartnerManager.hostLocalSession(username)
         val player = playerConnection?.player
         val currentMeta = player?.currentMetadata
-        if (currentMeta != null) {
+        val initialTrack = if (currentMeta != null) {
             val durationMs = if (currentMeta.duration > 0) currentMeta.duration.toLong() * 1000 else 180000L
-            val currentTrack = TrackInfo(
+            TrackInfo(
                 id = currentMeta.id,
                 title = currentMeta.title,
                 artist = currentMeta.artists.joinToString(", ") { it.name },
@@ -2151,22 +2155,22 @@ class ListenTogetherManager @Inject constructor(
                 thumbnail = currentMeta.thumbnailUrl,
                 suggestedBy = currentMeta.suggestedBy
             )
-            val isPlaying = player.playWhenReady
-            val position = player.currentPosition.coerceAtLeast(0L)
-            val queue = try {
-                playerConnection?.queueWindows?.value?.map { it.toTrackInfo() }
-            } catch (e: Exception) {
-                null
-            }
-            p2pPartnerManager.seedInitialServerState(currentTrack, isPlaying, position, queue)
+        } else null
+        val isPlaying = player?.playWhenReady ?: false
+        val position = player?.currentPosition?.coerceAtLeast(0L) ?: 0L
+        val queue = try {
+            playerConnection?.queueWindows?.value?.map { it.toTrackInfo() }
+        } catch (e: Exception) {
+            null
         }
+        p2pPartnerManager.hostLocalSession(username, initialTrack, isPlaying, position, queue)
     }
 
     fun disconnectP2P() {
         Timber.tag(TAG).d("Disconnecting P2P session")
         cleanup()
+        client.leaveRoom()
         p2pPartnerManager.disconnect()
-        client.disconnect()
     }
 
     fun startPeerDiscovery() {

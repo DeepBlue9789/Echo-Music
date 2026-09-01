@@ -83,6 +83,7 @@ class P2PPeerDiscovery(
      * Starts registering the local Echo Music P2P service on the network via mDNS.
      */
     fun startBroadcasting(deviceName: String = "Echo Device") {
+        currentDeviceName = deviceName
         if (isRegistered || nsdManager == null) return
 
         try {
@@ -181,6 +182,12 @@ class P2PPeerDiscovery(
         }
     }
 
+    private var currentDeviceName: String = "Echo Device"
+
+    fun setCurrentDeviceName(name: String) {
+        currentDeviceName = name
+    }
+
     private fun resolveService(serviceInfo: NsdServiceInfo) {
         try {
             nsdManager?.resolveService(serviceInfo, object : NsdManager.ResolveListener {
@@ -192,6 +199,18 @@ class P2PPeerDiscovery(
                     val host = serviceInfo.host?.hostAddress ?: return
                     val peerPort = serviceInfo.port
                     val isTailscale = host.startsWith("100.")
+
+                    // Prevent discovering self
+                    val myIps = getDeviceIpAddresses().map { it.first }.toSet()
+                    if (host in myIps || host == "127.0.0.1" || host.startsWith("127.") || host.equals("localhost", ignoreCase = true)) {
+                        Timber.tag(TAG).d("Ignoring self-discovered peer address: $host")
+                        return
+                    }
+                    if (serviceInfo.serviceName.equals(currentDeviceName, ignoreCase = true)) {
+                        Timber.tag(TAG).d("Ignoring self-discovered peer name: ${serviceInfo.serviceName}")
+                        return
+                    }
+
                     addDiscoveredPeer(
                         DiscoveredPeer(
                             name = serviceInfo.serviceName,
@@ -288,6 +307,13 @@ class P2PPeerDiscovery(
     }
 
     private fun addDiscoveredPeer(peer: DiscoveredPeer) {
+        val myIps = getDeviceIpAddresses().map { it.first }.toSet()
+        if (peer.hostAddress in myIps || peer.hostAddress == "127.0.0.1" || peer.hostAddress.startsWith("127.") || peer.hostAddress.equals("localhost", ignoreCase = true)) {
+            return
+        }
+        if (peer.name.equals(currentDeviceName, ignoreCase = true)) {
+            return
+        }
         scope.launch {
             val current = _discoveredPeers.value.filter { it.hostAddress != peer.hostAddress }
             _discoveredPeers.value = current + peer

@@ -58,6 +58,30 @@ class P2PPartnerManager @Inject constructor(
         scope.launch {
             loadConfig()
             observeConnectionState()
+            observeAutoDiscoverable()
+        }
+    }
+
+    private fun observeAutoDiscoverable() {
+        scope.launch {
+            context.dataStore.data
+                .map { prefs -> (try { prefs[ListenTogetherAutoDiscoverableKey] } catch (e: Exception) { null }) ?: false }
+                .distinctUntilChanged()
+                .collectLatest { enabled ->
+                    Timber.tag(TAG).i("Auto-discoverable background preference changed: $enabled")
+                    if (enabled) {
+                        discovery.setCurrentDeviceName(_deviceName.value)
+                        startLocalServer()
+                        discovery.startBroadcasting(_deviceName.value)
+                        discovery.startDiscovery()
+                        scanForPartners()
+                    } else {
+                        val currentClientState = client.connectionState.value
+                        if (currentClientState == ConnectionState.DISCONNECTED || currentClientState == ConnectionState.ERROR) {
+                            stopLocalServer()
+                        }
+                    }
+                }
         }
     }
 
@@ -70,11 +94,13 @@ class P2PPartnerManager @Inject constructor(
         _savedPartnerAddress.value = partnerIp
         _localPort.value = port
         _deviceName.value = savedName.ifBlank { defaultName }
+        discovery.setCurrentDeviceName(_deviceName.value)
     }
 
     fun saveDeviceName(name: String) {
         val trimmed = name.trim().ifBlank { Build.MODEL ?: "Echo Device" }
         _deviceName.value = trimmed
+        discovery.setCurrentDeviceName(trimmed)
         p2pServer?.serverDeviceName = trimmed
         scope.launch {
             context.dataStore.edit { prefs ->
@@ -143,7 +169,8 @@ class P2PPartnerManager @Inject constructor(
     @Synchronized
     fun startLocalServer(port: Int = _localPort.value): Boolean {
         if (p2pServer != null && _isServerRunning.value) {
-            Timber.tag(TAG).i("P2P Server is already running")
+            Timber.tag(TAG).i("P2P Server is already running, resetting room state to fresh instance")
+            p2pServer?.resetRoomState()
             return true
         }
 
@@ -154,7 +181,8 @@ class P2PPartnerManager @Inject constructor(
                 onPeerJoinedListener = { peerName ->
                     Timber.tag(TAG).i("Peer joined server: $peerName, connecting local client if not connected")
                     val currentClientState = client.connectionState.value
-                    if (!isIntentionalDisconnect && currentClientState != ConnectionState.CONNECTED && currentClientState != ConnectionState.CONNECTING) {
+                    if (currentClientState != ConnectionState.CONNECTED && currentClientState != ConnectionState.CONNECTING) {
+                        isIntentionalDisconnect = false
                         scope.launch {
                             val localUrl = "ws://127.0.0.1:$port"
                             client.connectDirect(localUrl, _deviceName.value)
@@ -194,47 +222,66 @@ class P2PPartnerManager @Inject constructor(
     }
 
     /**
-     * Connects directly to a partner's IP/hostname or local server in P2P mode.
+     * Connects directly to a partner's IP/hostname in P2P mode.
+     * Guaranteed to never connect to local self device.
      */
     fun connectToPartner(partnerAddress: String = _savedPartnerAddress.value, username: String = _deviceName.value) {
-        isIntentionalDisconnect = false
         val cleanAddr = partnerAddress.trim()
+        if (cleanAddr.isBlank()) {
+            Timber.tag(TAG).w("Cannot connect: Partner address is empty")
+            _status.value = P2PConnectionStatus.IDLE
+            return
+        }
+
+        val cleanHost = cleanAddr.removePrefix("ws://").removePrefix("wss://").removePrefix("http://").removePrefix("https://").substringBefore(":")
+        val isLocalhost = cleanHost.startsWith("127.") || cleanHost.equals("localhost", ignoreCase = true)
+        val myIps = discovery.getDeviceIpAddresses().map { it.first }.toSet()
+
+        if (isLocalhost || cleanHost in myIps) {
+            Timber.tag(TAG).w("Prevented connection to self IP: $cleanHost. Use 'Host P2P Session' instead.")
+            _status.value = P2PConnectionStatus.IDLE
+            return
+        }
+
+        isIntentionalDisconnect = false
         savePartnerAddress(cleanAddr)
 
         scope.launch {
-            // 1. Format WebSocket target URL
-            val targetHost = cleanAddr.ifEmpty { "127.0.0.1" }
-            val cleanHost = targetHost.removePrefix("ws://").removePrefix("wss://").removePrefix("http://").removePrefix("https://")
-            val isLocalhost = cleanHost.startsWith("127.0.0.1") || cleanHost.startsWith("localhost")
-
-            if (isLocalhost) {
-                startLocalServer()
-            }
-
-            val targetUrl = if (cleanHost.contains(":")) {
-                "ws://$cleanHost"
+            val targetUrl = if (cleanAddr.contains(":")) {
+                "ws://$cleanAddr"
             } else {
-                "ws://$cleanHost:${_localPort.value}"
+                "ws://$cleanAddr:${_localPort.value}"
             }
 
             _status.value = P2PConnectionStatus.CONNECTING_TO_PEER
             Timber.tag(TAG).i("Connecting to P2P partner target: $targetUrl as $username")
 
-            // 2. Connect client directly to target URL
+            // Connect client directly to partner target URL
             client.connectDirect(targetUrl, username)
 
-            // 3. Start auto-reconnect guardian for target URL
+            // Start auto-reconnect guardian for target URL
             startAutoReconnectGuardian(targetUrl, username)
         }
     }
 
     /**
-     * Host a standalone local P2P session and connect locally.
+     * Host a standalone local P2P session, reset server room state cleanly, seed initial state, and connect locally.
      */
-    fun hostLocalSession(username: String = _deviceName.value) {
+    fun hostLocalSession(
+        username: String = _deviceName.value,
+        initialTrack: TrackInfo? = null,
+        isPlaying: Boolean = false,
+        positionMs: Long = 0L,
+        queue: List<TrackInfo>? = null
+    ) {
         isIntentionalDisconnect = false
         scope.launch {
             startLocalServer()
+            if (initialTrack != null) {
+                p2pServer?.seedInitialState(initialTrack, isPlaying, positionMs, queue)
+            } else {
+                p2pServer?.resetRoomState()
+            }
             val localUrl = "ws://127.0.0.1:${_localPort.value}"
             _status.value = P2PConnectionStatus.CONNECTING_TO_PEER
             client.connectDirect(localUrl, username)
@@ -247,14 +294,26 @@ class P2PPartnerManager @Inject constructor(
 
     /**
      * Disconnects from P2P session.
+     * If autoDiscoverable is enabled, resets server into clean standby rather than killing it.
      */
     fun disconnect() {
         isIntentionalDisconnect = true
         autoReconnectJob?.cancel()
         autoReconnectJob = null
         client.disconnect()
-        stopLocalServer()
-        _status.value = P2PConnectionStatus.IDLE
+
+        scope.launch {
+            val autoDiscoverable = context.dataStore.get(ListenTogetherAutoDiscoverableKey, false)
+            if (autoDiscoverable) {
+                p2pServer?.resetRoomState()
+                _status.value = P2PConnectionStatus.SERVER_RUNNING
+                discovery.startBroadcasting(_deviceName.value)
+                Timber.tag(TAG).i("Preserving standby P2P server due to auto-discoverable setting")
+            } else {
+                stopLocalServer()
+                _status.value = P2PConnectionStatus.IDLE
+            }
+        }
     }
 
     private fun startAutoReconnectGuardian(targetUrl: String, username: String) {

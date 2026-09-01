@@ -57,16 +57,11 @@ fun P2PPartnerSection(
     )
 
     val ipAddresses = remember { p2pManager.discovery.getDeviceIpAddresses() }
+    val myIpsSet = remember(ipAddresses) { ipAddresses.map { it.first }.toSet() }
 
     LaunchedEffect(autoDiscoverable) {
         if (autoDiscoverable) {
-            p2pManager.startLocalServer()
-            manager.startPeerDiscovery()
             p2pManager.scanForPartners()
-        } else {
-            if (connectionState == ConnectionState.DISCONNECTED) {
-                p2pManager.stopLocalServer()
-            }
         }
     }
 
@@ -350,10 +345,19 @@ fun P2PPartnerSection(
                 }
             }
 
-            // Discovered Peers List
-            if (discoveredPeers.isNotEmpty()) {
+            // Discovered Peers List (excluding self)
+            val validDiscoveredPeers = remember(discoveredPeers, myIpsSet, deviceName) {
+                discoveredPeers.filter { peer ->
+                    peer.hostAddress !in myIpsSet &&
+                    peer.hostAddress != "127.0.0.1" &&
+                    !peer.hostAddress.startsWith("127.") &&
+                    !peer.name.equals(deviceName, ignoreCase = true)
+                }
+            }
+
+            if (validDiscoveredPeers.isNotEmpty()) {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    discoveredPeers.forEach { peer ->
+                    validDiscoveredPeers.forEach { peer ->
                         Surface(
                             shape = RoundedCornerShape(12.dp),
                             color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
@@ -462,10 +466,14 @@ fun P2PPartnerSection(
                     Button(
                         onClick = {
                             val target = partnerIpInput.trim()
-                            if (target.isNotBlank()) {
-                                manager.connectToPartner(target, deviceName)
-                            } else {
+                            val cleanHost = target.removePrefix("ws://").removePrefix("wss://")
+                                .removePrefix("http://").removePrefix("https://").substringBefore(":")
+                            if (target.isBlank()) {
                                 Toast.makeText(context, "Please enter partner Tailscale IP or Hostname", Toast.LENGTH_SHORT).show()
+                            } else if (cleanHost in myIpsSet || cleanHost.startsWith("127.") || cleanHost.equals("localhost", ignoreCase = true)) {
+                                Toast.makeText(context, "Cannot connect to self. Tap 'Host P2P Session' instead.", Toast.LENGTH_LONG).show()
+                            } else {
+                                manager.connectToPartner(target, deviceName)
                             }
                         },
                         enabled = !isConnecting,

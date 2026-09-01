@@ -116,6 +116,31 @@ class P2PWebSocketServer(
         Timber.tag(TAG).i("Pre-seeded P2P server state: track=${track?.title}, isPlaying=$isPlaying, pos=${posSec}s")
     }
 
+    @Synchronized
+    fun resetRoomState() {
+        Timber.tag(TAG).i("Resetting P2P room state to fresh standby instance")
+        peerSessions.clear()
+        bufferedUserIds.clear()
+        currentBufferingTrackId = null
+        virtualTimelineRefPos = 0.0
+        virtualTimelineRate = 0.0
+        virtualTimelineRefTime = System.currentTimeMillis()
+        currentSeqId = 0L
+        _roomState.value = RoomState(
+            roomCode = ROOM_CODE_P2P,
+            hostId = "server-local",
+            users = emptyList(),
+            currentTrack = null,
+            isPlaying = false,
+            position = 0L,
+            lastUpdate = System.currentTimeMillis(),
+            volume = 1f,
+            queue = emptyList(),
+            allowParticipantControl = true // Equal partner control
+        )
+        _connectedPeerCount.value = 0
+    }
+
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
         Timber.tag(TAG).i("P2P Peer connected: ${conn.remoteSocketAddress}")
     }
@@ -126,38 +151,44 @@ class P2PWebSocketServer(
         
         session?.let { s ->
             bufferedUserIds.remove(s.userId)
-            val hostUser = UserInfo(
-                userId = "host-local",
-                username = serverDeviceName,
-                isHost = true,
-                isConnected = true
-            )
-            val peerUsers = peerSessions.values.map {
-                UserInfo(userId = it.userId, username = it.username, isHost = it.isHost, isConnected = true)
-            }
-            val updatedUsers = (listOf(hostUser) + peerUsers).distinctBy { it.username }
-            _roomState.value = _roomState.value.copy(users = updatedUsers)
-            _connectedPeerCount.value = peerSessions.size
 
-            // Broadcast user left
-            val userLeftPayload = UserLeftPayload(s.userId, s.username)
-            broadcastMessage(MessageTypes.USER_LEFT, userLeftPayload)
+            val remainingSessions = peerSessions.values.toList()
+            val hostSession = remainingSessions.firstOrNull { it.isHost }
 
-            // Calculate current elapsed position from virtual timeline before pausing
-            val currentPosSec = if (virtualTimelineRate > 0.0) {
-                (virtualTimelineRefPos + (System.currentTimeMillis() - virtualTimelineRefTime) / 1000.0).coerceAtLeast(0.0)
+            if (remainingSessions.isEmpty()) {
+                // All peers (and host) have left. Cleanly reset server room state!
+                resetRoomState()
             } else {
-                virtualTimelineRefPos.coerceAtLeast(0.0)
-            }
-            val currentPosMs = (currentPosSec * 1000.0).toLong()
+                val peerUsers = remainingSessions.map {
+                    UserInfo(userId = it.userId, username = it.username, isHost = it.isHost, isConnected = true)
+                }.distinctBy { it.username }
 
-            // Broadcast pause on disconnect preserving current timestamp
-            val pauseAction = PlaybackActionPayload(
-                action = PlaybackActions.PAUSE,
-                position = currentPosMs
-            )
-            applyPlaybackAction(pauseAction, null)
-            broadcastMessage(MessageTypes.SYNC_PLAYBACK, pauseAction)
+                _roomState.value = _roomState.value.copy(
+                    hostId = hostSession?.userId ?: _roomState.value.hostId,
+                    users = peerUsers
+                )
+                _connectedPeerCount.value = remainingSessions.size
+
+                // Broadcast user left
+                val userLeftPayload = UserLeftPayload(s.userId, s.username)
+                broadcastMessage(MessageTypes.USER_LEFT, userLeftPayload)
+
+                // Calculate current elapsed position from virtual timeline before pausing
+                val currentPosSec = if (virtualTimelineRate > 0.0) {
+                    (virtualTimelineRefPos + (System.currentTimeMillis() - virtualTimelineRefTime) / 1000.0).coerceAtLeast(0.0)
+                } else {
+                    virtualTimelineRefPos.coerceAtLeast(0.0)
+                }
+                val currentPosMs = (currentPosSec * 1000.0).toLong()
+
+                // Broadcast pause on disconnect preserving current timestamp
+                val pauseAction = PlaybackActionPayload(
+                    action = PlaybackActions.PAUSE,
+                    position = currentPosMs
+                )
+                applyPlaybackAction(pauseAction, null)
+                broadcastMessage(MessageTypes.SYNC_PLAYBACK, pauseAction)
+            }
         }
     }
 
@@ -203,6 +234,31 @@ class P2PWebSocketServer(
                 conn.send(response.toString())
             }
 
+            MessageTypes.LEAVE_ROOM -> {
+                val session = peerSessions.remove(conn)
+                Timber.tag(TAG).i("Peer requested leave room: ${session?.username ?: conn.remoteSocketAddress}")
+                session?.let { s ->
+                    bufferedUserIds.remove(s.userId)
+                    val remainingSessions = peerSessions.values.toList()
+                    val hostSession = remainingSessions.firstOrNull { it.isHost }
+
+                    if (remainingSessions.isEmpty()) {
+                        resetRoomState()
+                    } else {
+                        val peerUsers = remainingSessions.map {
+                            UserInfo(userId = it.userId, username = it.username, isHost = it.isHost, isConnected = true)
+                        }.distinctBy { it.username }
+
+                        _roomState.value = _roomState.value.copy(
+                            hostId = hostSession?.userId ?: _roomState.value.hostId,
+                            users = peerUsers
+                        )
+                        _connectedPeerCount.value = remainingSessions.size
+                        broadcastMessage(MessageTypes.USER_LEFT, UserLeftPayload(s.userId, s.username))
+                    }
+                }
+            }
+
             MessageTypes.CREATE_ROOM, MessageTypes.JOIN_ROOM -> {
                 val username = when (type) {
                     MessageTypes.CREATE_ROOM -> payload?.let { json.decodeFromJsonElement<CreateRoomPayload>(it).username } ?: "Partner"
@@ -216,20 +272,14 @@ class P2PWebSocketServer(
                 val session = PeerSession(userId = userId, username = username, isHost = isConnHost)
                 peerSessions[conn] = session
 
-                val hostUser = UserInfo(
-                    userId = if (isConnHost) userId else "host-local",
-                    username = serverDeviceName,
-                    isHost = true,
-                    isConnected = true
-                )
-
-                val peerUsers = peerSessions.values.map {
+                val allSessions = peerSessions.values.toList()
+                val hostSession = allSessions.firstOrNull { it.isHost } ?: session
+                val updatedUsers = allSessions.map {
                     UserInfo(userId = it.userId, username = it.username, isHost = it.isHost, isConnected = true)
-                }
+                }.distinctBy { it.username }
 
-                val updatedUsers = (listOf(hostUser) + peerUsers).distinctBy { it.username }
                 _roomState.value = _roomState.value.copy(
-                    hostId = if (isConnHost) userId else _roomState.value.hostId.ifEmpty { "host-local" },
+                    hostId = hostSession.userId,
                     users = updatedUsers,
                     allowParticipantControl = true
                 )
