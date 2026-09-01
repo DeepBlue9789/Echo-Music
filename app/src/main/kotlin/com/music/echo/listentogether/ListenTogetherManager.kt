@@ -250,37 +250,24 @@ class ListenTogetherManager @Inject constructor(
                         Timber.tag(TAG).d("Host sending track change on transition (reason=$reason): ${currentMeta.title}")
                         sendTrackChangeInternal(currentMeta)
                         
-                        val isAutoTransition = (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
                         val otherUsersCount = (roomState.value?.users?.size ?: 1) - 1
                         
-                        if (isAutoTransition) {
-                            // On natural auto-transition, ExoPlayer has already pre-buffered the next track gaplessly.
-                            // NEVER pause the host! Keep playing seamlessly!
-                            Timber.tag(TAG).d("Seamless auto-transition: continuing gapless playback without pausing host")
-                            isWaitingForPeersBuffer = false
-                            bufferingTrackId = null
-                            lastSyncedIsPlaying = true
-                            timelineRefPosSec = 0.0
-                            timelineRate = 1.0
-                            timelineRefTime = System.currentTimeMillis()
-                            resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
-                            client.sendBufferReady(trackId)
-                        } else if (otherUsersCount > 0) {
-                            Timber.tag(TAG).d("Manual track jump: pausing host until all peers buffer track $trackId")
+                        if (otherUsersCount > 0) {
+                            Timber.tag(TAG).d("Room track transition: pausing host until peers buffer track $trackId")
                             isWaitingForPeersBuffer = true
                             bufferingTrackId = trackId
                             isSyncing = true
                             player.pause()
                             lastSyncedIsPlaying = false
                             scope.launch {
-                                delay(400)
+                                delay(300)
                                 isSyncing = false
                             }
                             bufferWaitTimeoutJob?.cancel()
                             bufferWaitTimeoutJob = scope.launch {
-                                delay(4000)
+                                delay(4500)
                                 if (isWaitingForPeersBuffer && bufferingTrackId == trackId) {
-                                    Timber.tag(TAG).w("Host buffer barrier wait timed out after 4s, resuming playback")
+                                    Timber.tag(TAG).w("Host buffer barrier wait timed out after 4.5s, resuming playback")
                                     isWaitingForPeersBuffer = false
                                     bufferingTrackId = null
                                     if (canControlMusic) {
@@ -338,9 +325,7 @@ class ListenTogetherManager @Inject constructor(
                             isSyncing = false
                         }
                     } else if (normBuffering == currentTrackId || isWaitingForPeersBuffer) {
-                        Timber.tag(TAG).d("Local playback STATE_READY for track $currentTrackId")
-                        bufferingTrackId = null
-                        isWaitingForPeersBuffer = false
+                        Timber.tag(TAG).d("Local playback STATE_READY for track $currentTrackId, sending buffer_ready")
                         client.sendBufferReady(currentTrackId)
                     }
                 } else if (playbackState == Player.STATE_BUFFERING) {
@@ -864,6 +849,9 @@ class ListenTogetherManager @Inject constructor(
             
             is ListenTogetherEvent.Reconnected -> {
                 Timber.tag(TAG).d("Reconnected to room: ${event.roomCode}, isHost: ${event.isHost}")
+                lastAppliedSeqId = -1L
+                isSyncing = false
+                isApplyingRemoteState = false
                 try {
                     
                     val connection = playerConnection
@@ -1010,7 +998,14 @@ class ListenTogetherManager @Inject constructor(
 
             is ListenTogetherEvent.UserLeft -> {
                 Timber.tag(TAG).d("User left: ${event.username}")
-                if (pauseOnDisconnectEnabled.value) {
+                val currentUsers = roomState.value?.users ?: emptyList()
+                val remainingUsers = currentUsers.filter { it.userId != event.userId }
+                val selfId = userId.value
+                val isOnlySelfLeft = remainingUsers.isEmpty() || remainingUsers.all { it.userId == selfId || it.username == p2pPartnerManager.deviceName.value }
+                if (isOnlySelfLeft) {
+                    Timber.tag(TAG).i("Last peer left the room (only self remains). Leaving room and resetting.")
+                    leaveRoom()
+                } else if (pauseOnDisconnectEnabled.value) {
                     try {
                         playerConnection?.player?.pause()
                     } catch (e: Exception) {
@@ -1085,7 +1080,7 @@ class ListenTogetherManager @Inject constructor(
         timelineRefPosSec = 0.0
         timelineRefTime = 0L
         timelineRate = 0.0
-        lastAppliedSeqId = 0L
+        lastAppliedSeqId = -1L
         isApplyingRemoteState = false
         pendingSyncState = null
         resetPlaybackSpeed()
@@ -1240,10 +1235,9 @@ class ListenTogetherManager @Inject constructor(
         timelineRefPosSec = payload.startPosition
         timelineRate = 1.0
 
-        if (isHost) {
-            lastSyncedIsPlaying = true
-            return
-        }
+        isWaitingForPeersBuffer = false
+        bufferingTrackId = null
+        bufferWaitTimeoutJob?.cancel()
 
         val targetLocalMonotonic = client.toLocalMonotonicTime(payload.executeAt)
         val nowMonotonic = SystemClock.elapsedRealtime()
@@ -1265,7 +1259,6 @@ class ListenTogetherManager @Inject constructor(
                     val currentPos = player.currentPosition
                     val posDiff = kotlin.math.abs(currentPos - startPosMs)
                     // Only seek if far off (> 2500ms).
-                    // If already paused near start position, seeking causes ExoPlayer decoder flushes and audio stutter!
                     if (posDiff > 2500L && startPosMs >= 0) {
                         Timber.tag(TAG).d("Two-Phase Scheduled Play: seeking from $currentPos to $startPosMs (diff ${posDiff}ms > 2500ms)")
                         player.seekTo(startPosMs)
@@ -1276,7 +1269,7 @@ class ListenTogetherManager @Inject constructor(
                         Timber.tag(TAG).d("Two-Phase Scheduled Play: waiting ${delayMs}ms to reach execute_at")
                         delay(delayMs)
                     }
-                    Timber.tag(TAG).d("Two-Phase Scheduled Play: executing PLAY at $startPosMs")
+                    Timber.tag(TAG).d("Two-Phase Scheduled Play: executing PLAY at $startPosMs (isHost=$isHost)")
                     connection.play()
                     lastSyncedIsPlaying = true
                 }
@@ -1299,12 +1292,6 @@ class ListenTogetherManager @Inject constructor(
         timelineRefTime = payload.serverTimestamp
         timelineRefPosSec = payload.pausePosition
         timelineRate = 0.0
-
-        if (isHost) {
-            lastSyncedIsPlaying = false
-            resetPlaybackSpeed()
-            return
-        }
 
         val pausePosMs = (payload.pausePosition * 1000.0).toLong()
         isApplyingRemoteState = true
@@ -1588,14 +1575,20 @@ class ListenTogetherManager @Inject constructor(
         try {
             when (action.action) {
                 PlaybackActions.PLAY -> {
-                    // Under Server-Authoritative Virtual Timeline, PLAY is managed by PLAY_SCHEDULED
-                    Timber.tag(TAG).d("Partner: PLAY in SYNC_PLAYBACK received (managed authoritatively by PLAY_SCHEDULED)")
+                    Timber.tag(TAG).d("Partner: PLAY in SYNC_PLAYBACK received")
+                    if (!player.isPlaying && !isWaitingForPeersBuffer) {
+                        connection.play()
+                        lastSyncedIsPlaying = true
+                    }
                     return
                 }
                 
                 PlaybackActions.PAUSE -> {
-                    // Under Server-Authoritative Virtual Timeline, PAUSE is managed by PAUSE_COMMAND
-                    Timber.tag(TAG).d("Partner: PAUSE in SYNC_PLAYBACK received (managed authoritatively by PAUSE_COMMAND)")
+                    Timber.tag(TAG).d("Partner: PAUSE in SYNC_PLAYBACK received")
+                    if (player.isPlaying) {
+                        connection.pause()
+                        lastSyncedIsPlaying = false
+                    }
                     return
                 }
 

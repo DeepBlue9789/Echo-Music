@@ -148,15 +148,17 @@ class P2PWebSocketServer(
     override fun onClose(conn: WebSocket, code: Int, reason: String?, remote: Boolean) {
         val session = peerSessions.remove(conn)
         Timber.tag(TAG).i("P2P Peer disconnected: ${session?.username ?: conn.remoteSocketAddress} ($reason)")
-        
         session?.let { s ->
             bufferedUserIds.remove(s.userId)
 
             val remainingSessions = peerSessions.values.toList()
             val hostSession = remainingSessions.firstOrNull { it.isHost }
+            val onlyHostRemaining = remainingSessions.isEmpty() || remainingSessions.all { it.isHost || it.username == serverDeviceName }
 
-            if (remainingSessions.isEmpty()) {
-                // All peers (and host) have left. Cleanly reset server room state!
+            if (onlyHostRemaining) {
+                // All guest peers have left. Notify remaining local connection and cleanly reset server room state!
+                val userLeftPayload = UserLeftPayload(s.userId, s.username)
+                broadcastMessage(MessageTypes.USER_LEFT, userLeftPayload)
                 resetRoomState()
             } else {
                 val peerUsers = remainingSessions.map {
@@ -241,8 +243,11 @@ class P2PWebSocketServer(
                     bufferedUserIds.remove(s.userId)
                     val remainingSessions = peerSessions.values.toList()
                     val hostSession = remainingSessions.firstOrNull { it.isHost }
+                    val onlyHostRemaining = remainingSessions.isEmpty() || remainingSessions.all { it.isHost || it.username == serverDeviceName }
 
-                    if (remainingSessions.isEmpty()) {
+                    if (onlyHostRemaining) {
+                        val userLeftPayload = UserLeftPayload(s.userId, s.username)
+                        broadcastMessage(MessageTypes.USER_LEFT, userLeftPayload)
                         resetRoomState()
                     } else {
                         val peerUsers = remainingSessions.map {
@@ -273,19 +278,20 @@ class P2PWebSocketServer(
                 peerSessions[conn] = session
 
                 val allSessions = peerSessions.values.toList()
-                val hostSession = allSessions.firstOrNull { it.isHost } ?: session
+                val hostSession = allSessions.firstOrNull { it.isHost }
+                val effectiveHostId = hostSession?.userId ?: "server-host"
                 val updatedUsers = allSessions.map {
                     UserInfo(userId = it.userId, username = it.username, isHost = it.isHost, isConnected = true)
                 }.distinctBy { it.username }
 
                 _roomState.value = _roomState.value.copy(
-                    hostId = hostSession.userId,
+                    hostId = effectiveHostId,
                     users = updatedUsers,
                     allowParticipantControl = true
                 )
                 _connectedPeerCount.value = peerSessions.size
 
-                Timber.tag(TAG).i("Peer registered in P2P room: $username ($userId). Active room users: ${updatedUsers.size}")
+                Timber.tag(TAG).i("Peer registered in P2P room: $username ($userId, isHost=$isConnHost). HostId=$effectiveHostId. Active room users: ${updatedUsers.size}")
 
                 // Send approved join payload with full room state containing all users
                 val approvedPayload = JoinApprovedPayload(
@@ -568,7 +574,6 @@ class P2PWebSocketServer(
                 val trackId = action.trackInfo?.id
                 currentBufferingTrackId = trackId
                 bufferedUserIds.clear()
-                senderUserId?.let { bufferedUserIds.add(it) }
 
                 // CRITICAL: Reset virtual timeline to 0.0 for the new song!
                 virtualTimelineRefPos = 0.0
@@ -600,15 +605,15 @@ class P2PWebSocketServer(
 
                 // If sender is ready and room has <= 1 connected peer or all buffered, release buffer barrier
                 val totalPeers = peerSessions.size
-                if (trackId != null && (bufferedUserIds.size >= totalPeers || totalPeers <= 1)) {
-                    Timber.tag(TAG).i("Track changed and buffer barrier immediately satisfied for $trackId")
+                if (trackId != null && totalPeers <= 1) {
+                    Timber.tag(TAG).i("Track changed and solo host buffer barrier immediately satisfied for $trackId")
                     releaseBufferBarrier(trackId)
                 } else if (trackId != null) {
-                    // Start safety barrier timer: auto-release after 3.5s to prevent stuck barrier deadlocks
+                    // Start safety barrier timer: auto-release after 4.5s to prevent stuck barrier deadlocks
                     serverBarrierJob?.cancel()
                     serverBarrierJob = scope.launch {
-                        delay(3500)
-                        if (currentBufferingTrackId == trackId && bufferedUserIds.isNotEmpty()) {
+                        delay(4500)
+                        if (currentBufferingTrackId == trackId) {
                             Timber.tag(TAG).w("Server barrier timeout reached for $trackId, releasing room")
                             releaseBufferBarrier(trackId)
                         }
