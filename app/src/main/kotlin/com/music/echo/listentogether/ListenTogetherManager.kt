@@ -766,14 +766,18 @@ class ListenTogetherManager @Inject constructor(
                     try {
                         val connection = playerConnection
                         val player = connection?.player
-                        player?.currentMetadata?.let { metadata ->
-                            Timber.tag(TAG).d("[SYNC] Sending current track to newly joined user: ${metadata.title}")
-                            sendTrackChangeInternal(metadata)
-                            
-                            if (player.playWhenReady) {
-                                val pos = player.currentPosition
-                                Timber.tag(TAG).d("[SYNC] Host playing, sending PLAY at $pos for new joiner")
-                                client.sendPlaybackAction(PlaybackActions.PLAY, position = pos)
+                        // Only seed initial track if the room does not already have a track!
+                        // NEVER reset an ongoing playback or timeline to 0:00 when a peer joins!
+                        if (roomState.value?.currentTrack == null) {
+                            player?.currentMetadata?.let { metadata ->
+                                Timber.tag(TAG).d("[SYNC] Seeding track to empty room on user join: ${metadata.title}")
+                                sendTrackChangeInternal(metadata)
+                                
+                                if (player.playWhenReady) {
+                                    val pos = player.currentPosition
+                                    Timber.tag(TAG).d("[SYNC] Host playing, sending PLAY at $pos for new joiner")
+                                    client.sendPlaybackAction(PlaybackActions.PLAY, position = pos)
+                                }
                             }
                         }
                         sendCurrentQueueSync()
@@ -2134,6 +2138,28 @@ class ListenTogetherManager @Inject constructor(
     fun hostP2PSession(username: String) {
         Timber.tag(TAG).d("Hosting P2P session as $username")
         p2pPartnerManager.hostLocalSession(username)
+        val player = playerConnection?.player
+        val currentMeta = player?.currentMetadata
+        if (currentMeta != null) {
+            val durationMs = if (currentMeta.duration > 0) currentMeta.duration.toLong() * 1000 else 180000L
+            val currentTrack = TrackInfo(
+                id = currentMeta.id,
+                title = currentMeta.title,
+                artist = currentMeta.artists.joinToString(", ") { it.name },
+                album = currentMeta.album?.title,
+                duration = durationMs,
+                thumbnail = currentMeta.thumbnailUrl,
+                suggestedBy = currentMeta.suggestedBy
+            )
+            val isPlaying = player.playWhenReady
+            val position = player.currentPosition.coerceAtLeast(0L)
+            val queue = try {
+                playerConnection?.queueWindows?.value?.map { it.toTrackInfo() }
+            } catch (e: Exception) {
+                null
+            }
+            p2pPartnerManager.seedInitialServerState(currentTrack, isPlaying, position, queue)
+        }
     }
 
     fun disconnectP2P() {

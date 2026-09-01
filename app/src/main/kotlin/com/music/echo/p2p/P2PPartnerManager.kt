@@ -7,6 +7,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import echo.music.iad1tya.constants.*
 import echo.music.iad1tya.listentogether.ConnectionState
 import echo.music.iad1tya.listentogether.ListenTogetherClient
+import echo.music.iad1tya.listentogether.TrackInfo
 import echo.music.iad1tya.utils.dataStore
 import echo.music.iad1tya.utils.get
 import kotlinx.coroutines.CoroutineScope
@@ -240,6 +241,10 @@ class P2PPartnerManager @Inject constructor(
         }
     }
 
+    fun seedInitialServerState(track: TrackInfo?, isPlaying: Boolean, positionMs: Long, queue: List<TrackInfo>?) {
+        p2pServer?.seedInitialState(track, isPlaying, positionMs, queue)
+    }
+
     /**
      * Disconnects from P2P session.
      */
@@ -262,7 +267,7 @@ class P2PPartnerManager @Inject constructor(
                 val connectedPeersOnServer = p2pServer?.connectedPeerCount?.value ?: 0
                 
                 if (!isIntentionalDisconnect && 
-                    currentState == ConnectionState.ERROR &&
+                    (currentState == ConnectionState.ERROR || currentState == ConnectionState.DISCONNECTED) &&
                     connectedPeersOnServer == 0
                 ) {
                     attempts++

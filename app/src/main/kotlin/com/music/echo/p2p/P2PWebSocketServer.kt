@@ -100,6 +100,22 @@ class P2PWebSocketServer(
         Timber.tag(TAG).i("P2P WebSocket Server ($serverDeviceName) started on port $port")
     }
 
+    fun seedInitialState(track: TrackInfo?, isPlaying: Boolean, positionMs: Long, queue: List<TrackInfo>?) {
+        val posSec = (positionMs / 1000.0).coerceAtLeast(0.0)
+        val now = System.currentTimeMillis()
+        virtualTimelineRefPos = posSec
+        virtualTimelineRefTime = now
+        virtualTimelineRate = if (isPlaying) 1.0 else 0.0
+        _roomState.value = _roomState.value.copy(
+            currentTrack = track,
+            isPlaying = isPlaying,
+            position = positionMs,
+            queue = queue ?: emptyList(),
+            lastUpdate = now
+        )
+        Timber.tag(TAG).i("Pre-seeded P2P server state: track=${track?.title}, isPlaying=$isPlaying, pos=${posSec}s")
+    }
+
     override fun onOpen(conn: WebSocket, handshake: ClientHandshake) {
         Timber.tag(TAG).i("P2P Peer connected: ${conn.remoteSocketAddress}")
     }

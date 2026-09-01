@@ -544,11 +544,10 @@ class ListenTogetherClient @Inject constructor(
                 clockSynchronizer.start()
                 
                 
-                if (sessionToken != null && storedRoomCode != null) {
+                if (sessionToken != null && storedRoomCode != null && storedRoomCode != "P2P-MESH") {
                     log(LogLevel.INFO, "Attempting to reconnect to previous session", "Room: $storedRoomCode")
                     sendMessage(MessageTypes.RECONNECT, ReconnectPayload(sessionToken!!))
                 } else {
-                    
                     executePendingAction()
                 }
             }
@@ -761,14 +760,7 @@ class ListenTogetherClient @Inject constructor(
         _pendingJoinRequests.value = emptyList()
         _bufferingUsers.value = emptyList()
         
-        if (directTargetUrl != null || _roomState.value?.roomCode == "P2P-MESH") {
-            log(LogLevel.INFO, "P2P session disconnected, skipping reconnect loop")
-            _roomState.value = null
-            scope.launch { _events.emit(ListenTogetherEvent.Disconnected) }
-            return
-        }
-        
-        if (sessionToken != null && _roomState.value != null) {
+        if (sessionToken != null || _roomState.value != null || directTargetUrl != null) {
             log(LogLevel.INFO, "Connection lost, will attempt to reconnect")
             handleConnectionFailure(Exception("Connection lost"))
         } else {
@@ -781,15 +773,7 @@ class ListenTogetherClient @Inject constructor(
         pingJob = null
         clockSynchronizer.stop()
         
-        if (directTargetUrl != null || _roomState.value?.roomCode == "P2P-MESH") {
-            log(LogLevel.INFO, "P2P connection failure, skipping reconnect loop", t.message)
-            _roomState.value = null
-            _connectionState.value = ConnectionState.DISCONNECTED
-            scope.launch { _events.emit(ListenTogetherEvent.Disconnected) }
-            return
-        }
-        
-        val shouldReconnect = sessionToken != null || _roomState.value != null || pendingAction != null
+        val shouldReconnect = sessionToken != null || _roomState.value != null || pendingAction != null || directTargetUrl != null
         
         if (!isNetworkAvailable) {
             log(LogLevel.WARNING, "Connection failure, waiting for network", t.message)
@@ -1519,6 +1503,7 @@ class ListenTogetherClient @Inject constructor(
     }
 
     fun sendClockSyncRequest(clientT1: Long) {
+        if (codec.format == MessageFormat.PROTOBUF) return
         sendMessage(MessageTypes.CLOCK_SYNC_REQ, ClockSyncRequestPayload(clientT1))
     }
 
