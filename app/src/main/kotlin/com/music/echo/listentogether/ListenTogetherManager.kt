@@ -242,9 +242,11 @@ class ListenTogetherManager @Inject constructor(
                 
                 val trackId = mediaItem.mediaId
                 val currentMeta = player.currentMetadata
-                if (currentMeta != null && currentMeta.id == trackId) {
-                    if (trackId != lastSyncedTrackId) {
-                        lastSyncedTrackId = trackId
+                val normTrackId = normalizeTrackId(trackId)
+                val normMetaId = normalizeTrackId(currentMeta?.id)
+                if (currentMeta != null && (normMetaId == normTrackId || normMetaId.isEmpty())) {
+                    if (normTrackId != normalizeTrackId(lastSyncedTrackId)) {
+                        lastSyncedTrackId = normTrackId
                         Timber.tag(TAG).d("Host sending track change on transition (reason=$reason): ${currentMeta.title}")
                         sendTrackChangeInternal(currentMeta)
                         
@@ -780,9 +782,14 @@ class ListenTogetherManager @Inject constructor(
 
             is ListenTogetherEvent.BufferWait -> {
                 Timber.tag(TAG).d("BufferWait: waiting for ${event.waitingFor.size} users on track ${event.trackId}")
+                val connection = playerConnection
+                // If room/player is already actively playing and progressing, ignore spurious mid-playback BufferWait
+                if (connection != null && connection.player.isPlaying && timelineRate > 0.0) {
+                    Timber.tag(TAG).d("Spurious BufferWait ignored: player is already actively playing")
+                    return
+                }
                 isWaitingForPeersBuffer = true
                 bufferingTrackId = event.trackId
-                val connection = playerConnection
                 if (connection != null && connection.player.isPlaying) {
                     isSyncing = true
                     connection.pause()
@@ -1593,17 +1600,21 @@ class ListenTogetherManager @Inject constructor(
                         val currentLocalTrackId = normalizeTrackId(player.currentMediaItem?.mediaId)
                         val incomingTrackId = normalizeTrackId(track.id)
                         
-                        if (currentLocalTrackId.isNotEmpty() && currentLocalTrackId == incomingTrackId && player.isPlaying) {
+                        val isAlreadyOnTrack = currentLocalTrackId.isNotEmpty() && currentLocalTrackId == incomingTrackId
+                        if (isAlreadyOnTrack) {
                             // Guest has already seamlessly transitioned to this track via ExoPlayer queue!
-                            Timber.tag(TAG).d("Guest: Already playing track ${track.title} gaplessly, skipping queue reload and seek")
+                            Timber.tag(TAG).d("Guest: Already on track ${track.title} gaplessly, skipping queue reload, pause, and seek")
                             lastSyncedTrackId = track.id
                             lastSyncedIsPlaying = true
                             bufferingTrackId = null
                             isWaitingForPeersBuffer = false
-                            timelineRefPosSec = (player.currentPosition / 1000.0)
+                            timelineRefPosSec = (player.currentPosition.coerceAtLeast(0L) / 1000.0)
                             timelineRate = 1.0
                             timelineRefTime = System.currentTimeMillis()
                             resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
+                            if (!player.isPlaying && player.playWhenReady) {
+                                connection.play()
+                            }
                             return
                         }
 

@@ -607,6 +607,13 @@ class P2PWebSocketServer(
     }
 
     private fun handleBufferReady(userId: String, trackId: String) {
+        // If barrier has already released or room is actively playing, ignore late buffer_ready!
+        // DO NOT lock the room into a false BUFFER_WAIT loop when playback is already underway!
+        if (currentBufferingTrackId == null || virtualTimelineRate > 0.0) {
+            Timber.tag(TAG).d("Ignoring late buffer_ready for $trackId from $userId - room already playing")
+            return
+        }
+
         currentBufferingTrackId = trackId
         bufferedUserIds.add(userId)
 
