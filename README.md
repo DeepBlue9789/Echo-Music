@@ -20,6 +20,8 @@
 
 Echo Music delivers a seamless, premium listening experience by leveraging YouTube Music's vast library — without the ads. It adds powerful extras including offline downloads, real-time synchronized lyrics, and environment-aware music recognition.
 
+> **Update Schedule (Effective Sept 1, 2026):** Echo Music receives weekly updates! New releases roll out every Monday or Tuesday (IST), featuring the previous week's improvements. This new schedule helps us push crucial updates faster and keep a proper track of development. You can also track upcoming changes directly in the app by going to **Settings > System Update > Upcoming Update**.
+
 ---
 
 ## Table of Contents
