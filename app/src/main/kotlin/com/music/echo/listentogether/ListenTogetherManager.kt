@@ -703,6 +703,9 @@ class ListenTogetherManager @Inject constructor(
                 Timber.tag(TAG).d("Join approved for room: ${event.roomCode}, isHost: $isHost")
                 autoStartOverlayIfEnabled()
                 saveMuteStateOnJoin()
+                lastAppliedSeqId = -1
+                isSyncing = false
+                isApplyingRemoteState = false
 
                 val connection = playerConnection
                 val player = connection?.player
@@ -1417,7 +1420,7 @@ class ListenTogetherManager @Inject constructor(
 
     private fun handleSessionSnapshot(payload: SessionSnapshotPayload) {
         if (isHost) return
-        if (payload.seqId < lastAppliedSeqId) return
+        if (lastAppliedSeqId >= 0 && payload.seqId < lastAppliedSeqId) return
         lastAppliedSeqId = payload.seqId
         timelineRefTime = payload.refTimestamp
         timelineRefPosSec = payload.refPosition
@@ -1428,9 +1431,10 @@ class ListenTogetherManager @Inject constructor(
 
         val connection = playerConnection ?: return
         val player = connection.player
-        val currentTrackId = player.currentMediaItem?.mediaId
+        val currentTrackId = normalizeTrackId(player.currentMediaItem?.mediaId)
+        val snapshotTrackId = normalizeTrackId(payload.trackId ?: payload.trackInfo?.id)
 
-        if (payload.trackInfo != null && currentTrackId != payload.trackId) {
+        if (payload.trackInfo != null && (snapshotTrackId.isNotEmpty() && currentTrackId != snapshotTrackId)) {
             applyPlaybackState(
                 currentTrack = payload.trackInfo,
                 isPlaying = payload.isPlaying,

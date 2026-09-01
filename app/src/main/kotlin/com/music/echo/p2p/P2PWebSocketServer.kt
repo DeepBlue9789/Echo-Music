@@ -127,10 +127,18 @@ class P2PWebSocketServer(
             val userLeftPayload = UserLeftPayload(s.userId, s.username)
             broadcastMessage(MessageTypes.USER_LEFT, userLeftPayload)
 
-            // Broadcast pause on disconnect
+            // Calculate current elapsed position from virtual timeline before pausing
+            val currentPosSec = if (virtualTimelineRate > 0.0) {
+                (virtualTimelineRefPos + (System.currentTimeMillis() - virtualTimelineRefTime) / 1000.0).coerceAtLeast(0.0)
+            } else {
+                virtualTimelineRefPos.coerceAtLeast(0.0)
+            }
+            val currentPosMs = (currentPosSec * 1000.0).toLong()
+
+            // Broadcast pause on disconnect preserving current timestamp
             val pauseAction = PlaybackActionPayload(
                 action = PlaybackActions.PAUSE,
-                position = _roomState.value.position
+                position = currentPosMs
             )
             applyPlaybackAction(pauseAction, null)
             broadcastMessage(MessageTypes.SYNC_PLAYBACK, pauseAction)
