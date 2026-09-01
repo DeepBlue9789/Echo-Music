@@ -1,18 +1,9 @@
 {
   "upcoming_update": {
-    "version": "1.3.0-beta",
-    "release_date": "Sept 8, 2026",
-    "features": [
-      "New animated lyrics engine",
-      "Improved offline caching"
-    ],
-    "bug_fixes": [
-      "Fixed crash on Android 11",
-      "Resolved UI stutter on home screen"
-    ],
-    "contributors": [
-      "aditya",
-      "dev_null"
-    ]
+    "version": "Next Release",
+    "release_date": "TBD",
+    "features": [],
+    "bug_fixes": [],
+    "contributors": []
   }
 }
