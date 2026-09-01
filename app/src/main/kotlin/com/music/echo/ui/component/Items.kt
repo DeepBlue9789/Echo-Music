@@ -811,11 +811,12 @@ fun PlaylistListItem(
     subtitle = if (autoPlaylist) {
         ""
     } else {
-        if (playlist.songCount == 0 && playlist.playlist.remoteSongCount!! != null) {
+        val remoteCount = playlist.playlist.remoteSongCount
+        if (playlist.songCount == 0 && remoteCount != null) {
             pluralStringResource(
                 R.plurals.n_song,
-                playlist.playlist.remoteSongCount!!!!,
-                playlist.playlist.remoteSongCount!!
+                remoteCount,
+                remoteCount
             )
         } else {
             pluralStringResource(
@@ -912,11 +913,12 @@ fun PlaylistGridItem(
         val subtitle = if (autoPlaylist) {
             ""
         } else {
-            if (playlist.songCount == 0 && playlist.playlist.remoteSongCount!! != null) {
+            val remoteCount = playlist.playlist.remoteSongCount
+            if (playlist.songCount == 0 && remoteCount != null) {
                 pluralStringResource(
                     R.plurals.n_song,
-                    playlist.playlist.remoteSongCount!!!!,
-                    playlist.playlist.remoteSongCount!!
+                    remoteCount,
+                    remoteCount
                 )
             } else {
                 pluralStringResource(
