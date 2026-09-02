@@ -4,29 +4,22 @@
   <h1>Echo Music</h1>
 
   <p><b>A modern Android music app with ad-free streaming, synced lyrics, offline playback, and an intuitive user experience.</b></p>
-  
-  <table style="margin: 0 auto; border-collapse: collapse; border: none;">
-    <tr>
-      <td align="center" style="padding: 15px; border: none;">
-        <a href="https://echomusic.fun/download" style="text-decoration:none;"><img src="assets/download.png" alt="Download" width="150" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/></a>
-      </td>
-    </tr>
-  </table>
 </div>
 
 ---
-
-> [!IMPORTANT]
-> **In-app OTA updates have been permanently removed.** Please update manually via the website. Echo Music is completely free and ad-free; the few ads shown during a manual download help support the ongoing development of this project. Please do not open issues requesting to bring this back. Thank you for your support!
 
 ## Overview
 
 Echo Music delivers a seamless, premium listening experience by leveraging YouTube Music's vast library — without the ads. It adds powerful extras including offline downloads, real-time synchronized lyrics, and environment-aware music recognition.
 
 > [!IMPORTANT]
-> **Update Schedule (Effective Sept 1, 2026):** Echo Music now receives bi-weekly updates! New releases roll out every Wednesday and Saturday (IST), featuring the latest improvements. This schedule helps us push crucial updates faster and keep a proper track of development. You can also track upcoming changes directly in the app by going to **Settings > System Update > Upcoming Update**.
-- **Discord**: [Join the Echo Music Discord server](https://discord.gg/Xt5hgsJJuA)
+> **In-app OTA updates have been permanently removed.** Please update manually via the website. Echo Music is completely free and ad-free; the few ads shown during a manual download help support the ongoing development of this project. Please do not open issues requesting to bring this back. Thank you for your support!
 
+> [!IMPORTANT]
+> **Update Schedule (Effective Sept 1, 2026):** Echo Music now receives bi-weekly updates! New releases roll out every Wednesday and Saturday (IST), featuring the latest improvements. This schedule helps us push crucial updates faster and keep a proper track of development. You can also track upcoming changes directly in the app by going to **Settings > System Update > Upcoming Update**.
+
+---
+- **Discord**: [Join the Echo Music Discord server](https://discord.gg/Xt5hgsJJuA)
 ---
 
 ## Table of Contents
@@ -35,8 +28,6 @@ Echo Music delivers a seamless, premium listening experience by leveraging YouTu
 - [Screenshots](#screenshots)
 - [Features](#features)
 - [Installation & Setup](#installation--setup)
-- [Translations](#translations)
-- [Community & Support](#community--support)
 - [Support the Project](#support-the-project)
 - [Contributors](#contributors)
 - [Special Thanks](#special-thanks)
@@ -45,7 +36,7 @@ Echo Music delivers a seamless, premium listening experience by leveraging YouTu
 
 ## Screenshots
 
-<div align="center">
+<div align="left">
   <table style="margin: 0 auto; border-collapse: collapse;">
     <tr>
       <td align="center" style="padding: 15px; border: none;">
@@ -211,7 +202,7 @@ Download the latest pre-compiled APK from the [Releases Page](https://github.com
 
 If Echo Music has been useful to you, consider supporting its development.
 
-<div align="center">
+<div align="left">
   <table style="margin: 0 auto; border-collapse: collapse; border: none;">
     <tr>
       <td align="center" style="padding: 15px; border: none;">
