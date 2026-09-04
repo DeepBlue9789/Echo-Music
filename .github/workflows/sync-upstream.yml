@@ -13,7 +13,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   sync:
@@ -21,7 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      workflows: write
 
     outputs:
       new_release_needed: ${{ steps.check_upstream.outputs.new_release_needed }}
@@ -82,18 +80,14 @@ jobs:
         if: steps.check_upstream.outputs.has_new_commits == 'true'
         run: |
           echo "Merging upstream/main into fork main..."
-          git merge upstream/main --no-edit -m "Sync upstream Echo-Music changes into fork" || {
+          git merge upstream/main --no-commit --no-ff || {
             echo "Conflict detected during merge. Resolving with fork preference for conflicting files..."
             git checkout --ours .
-            git add -A
-            git commit -m "Resolve merge conflicts prioritizing fork ListenTogether features"
           }
-          git push origin main || {
-            echo "Push failed, checking if workflow file changes were rejected..."
-            git checkout HEAD~1 -- .github/workflows/
-            git commit --amend --no-edit
-            git push origin main
-          }
+          # Retain fork workflows to prevent GITHUB_TOKEN workflow modification rejection
+          git checkout HEAD -- .github/workflows/
+          git commit -m "Sync upstream Echo-Music changes into fork"
+          git push origin main
 
       - name: Determine Target Release Tag
         id: determine_tag
