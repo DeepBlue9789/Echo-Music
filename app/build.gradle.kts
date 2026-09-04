@@ -120,15 +120,11 @@ android {
         }
         create("release") {
             val keystoreFile = rootProject.file("keystore.jks")
-            if (keystoreFile.exists()) {
-                storeFile = keystoreFile
-            } else {
-                val localKeystore = file("keystore/release.keystore")
-                if (localKeystore.exists()) storeFile = localKeystore
-            }
-            storePassword = System.getenv("STORE_PASSWORD")
-            keyAlias = System.getenv("KEY_ALIAS")
-            keyPassword = System.getenv("KEY_PASSWORD")
+            val localKeystore = file("keystore/release.keystore")
+            storeFile = if (keystoreFile.exists()) keystoreFile else localKeystore
+            storePassword = System.getenv("STORE_PASSWORD") ?: "echopassword"
+            keyAlias = System.getenv("KEY_ALIAS") ?: "echorelease"
+            keyPassword = System.getenv("KEY_PASSWORD") ?: "echopassword"
         }
         getByName("debug") {
             keyAlias = "androiddebugkey"
@@ -144,7 +140,7 @@ android {
             isShrinkResources = true
             isCrunchPngs = false
             isDebuggable = false
-            val hasReleaseKeystore = (rootProject.file("keystore.jks").exists() || file("keystore/release.keystore").exists()) && !System.getenv("STORE_PASSWORD").isNullOrEmpty()
+            val hasReleaseKeystore = rootProject.file("keystore.jks").exists() || file("keystore/release.keystore").exists()
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             } else {

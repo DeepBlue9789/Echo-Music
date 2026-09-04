@@ -141,6 +141,19 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - Reads `versionName` vs `tag_name`, downloads `changelog.json`, and matches non-debug `.apk` assets.
 - When GitHub Actions publishes a new release, installed apps immediately prompt users with the new update dialog and one-tap download.
 
+### D. Permanent Release Keystore & Certificate Lineage
+- **Problem**: Previously, CI builds without repository secrets dynamically executed `keytool -genkey`, producing an ephemeral RSA key pair on every runner. Because Android strictly enforces cryptographic signature matching for package updates, users updating via in-app updater encountered `INSTALL_FAILED_UPDATE_INCOMPATIBLE` (signature mismatch).
+- **Permanent Keystore Resolution**:
+  - Generated a dedicated 10,000-day RSA 2048 signing certificate:
+    - **Alias**: `echorelease`
+    - **Password**: `echopassword`
+    - **Owner / Issuer**: `CN=Echo Music, OU=Mobile, O=Echo Music, L=Unknown, ST=Unknown, C=US`
+    - **SHA-256 Digest**: `19:F0:02:FC:F2:4F:CA:D2:08:0B:80:46:33:EE:91:B3:69:66:9D:6E:05:97:E7:C5:87:80:5B:0A:11:89:4D:8A`
+    - **Validity**: Until January 20, 2054.
+  - Uploaded base64-encoded keystore to GitHub Repository Secrets as `KEYSTORE_BASE64` with `KEY_ALIAS`, `KEY_PASSWORD`, and `STORE_PASSWORD` in `DeepBlue9789/Echo-Music`.
+  - Local path: `app/keystore/release.keystore` (kept in local workspace and ignored by git).
+  - Both CI (`.github/workflows/build-release.yml`) and local Gradle builds (`app/build.gradle.kts`) now deterministically bind to this identical key pair, ensuring zero signature mismatches across all future in-app updates.
+
 ---
 
 ## 6. Quick Reference for Key Files

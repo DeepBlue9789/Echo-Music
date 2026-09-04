@@ -62,19 +62,25 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             echo "Decoding repository secret KEYSTORE_BASE64 into keystore.jks..."
             echo "$KEYSTORE_BASE64" | base64 -d > keystore.jks
-          elif [ ! -f "keystore.jks" ] && [ ! -f "app/keystore/release.keystore" ]; then
-            echo "No custom release keystore found. Generating dedicated CI release keystore..."
-            keytool -genkey -v -keystore keystore.jks -alias echorelease -keyalg RSA -keysize 2048 -validity 10000 -storepass echopassword -keypass echopassword -dname "CN=Echo Music, OU=Mobile, O=Echo, L=Unknown, S=Unknown, C=US"
-            echo "STORE_PASSWORD=echopassword" >> $GITHUB_ENV
-            echo "KEY_PASSWORD=echopassword" >> $GITHUB_ENV
-            echo "KEY_ALIAS=echorelease" >> $GITHUB_ENV
+          elif [ -f "app/keystore/release.keystore" ]; then
+            echo "Using tracked permanent release keystore from app/keystore/release.keystore..."
+            cp app/keystore/release.keystore keystore.jks
+          elif [ -f "keystore.jks" ]; then
+            echo "Using root keystore.jks..."
+          else
+            echo "Error: No release keystore found! Aborting to prevent generating an ephemeral key."
+            exit 1
           fi
+
+          echo "STORE_PASSWORD=${{ secrets.STORE_PASSWORD || 'echopassword' }}" >> $GITHUB_ENV
+          echo "KEY_PASSWORD=${{ secrets.KEY_PASSWORD || 'echopassword' }}" >> $GITHUB_ENV
+          echo "KEY_ALIAS=${{ secrets.KEY_ALIAS || 'echorelease' }}" >> $GITHUB_ENV
 
       - name: Build Universal GMS Release APK
         env:
-          KEY_ALIAS: ${{ env.KEY_ALIAS || secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ env.KEY_PASSWORD || secrets.KEY_PASSWORD }}
-          STORE_PASSWORD: ${{ env.STORE_PASSWORD || secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ env.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ env.KEY_PASSWORD }}
+          STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
         run: |
           chmod +x gradlew
           ./gradlew assembleUniversalGmsRelease --no-daemon --stacktrace -Dorg.gradle.java.home="$JAVA_HOME"
