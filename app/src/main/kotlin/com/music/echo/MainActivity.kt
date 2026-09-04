@@ -576,14 +576,6 @@ class MainActivity : ComponentActivity() {
         ) {
 
 
-        if (showUpdateDialog) {
-            echo.music.iad1tya.echomusic.component.UpdateAvailableDialog(
-                version = availableUpdateVersion,
-                changelog = availableUpdateChangelog,
-                description = availableUpdateDescription,
-                onDismiss = { showUpdateDialog = false }
-            )
-        }
             BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxSize()
@@ -618,6 +610,19 @@ class MainActivity : ComponentActivity() {
                 val bottomInsetDp = WindowInsets.systemBars.asPaddingValues().calculateBottomPadding()
 
                 val navController = rememberNavController()
+
+                if (showUpdateDialog) {
+                    echo.music.iad1tya.echomusic.component.UpdateAvailableDialog(
+                        version = availableUpdateVersion,
+                        changelog = availableUpdateChangelog,
+                        description = availableUpdateDescription,
+                        onDismiss = { showUpdateDialog = false },
+                        onUpdate = {
+                            showUpdateDialog = false
+                            navController.navigate("update")
+                        }
+                    )
+                }
                 val homeViewModel: HomeViewModel = hiltViewModel()
                 val accountImageUrl by homeViewModel.accountImageUrl.collectAsState()
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
