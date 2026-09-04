@@ -116,8 +116,8 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 
 ### A. Automatic Upstream Sync (`.github/workflows/sync-upstream.yml`)
 - Runs every 6 hours via cron and supports manual trigger (`workflow_dispatch`).
-- Fetches `https://github.com/EchoMusicApp/Echo-Music.git` (`upstream/main`).
-- Compares commit counts and latest release tags.
+- Fetches `https://github.com/EchoMusicApp/Echo-Music.git` (`upstream/main`) with `--no-tags` to prevent git tag clobbering collisions (e.g. conflicting tag SHAs between upstream and fork).
+- Compares commit counts and latest release tags via authenticated GitHub API (`gh api` / GitHub Token).
 - If upstream has changes:
   1. Merges `upstream/main` into `origin/main` automatically.
   2. In case of merge conflicts, favors fork Listen Together features (`git checkout --ours .`).
@@ -125,7 +125,9 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
   4. Generates a new release tag `v<version>` (matching or exceeding upstream) and pushes the tag to trigger the release builder.
 
 ### B. Automated Release Publisher (`.github/workflows/build-release.yml`)
-- Triggered automatically on tag push (`v*`) or manual dispatch.
+- Triggered automatically on tag push (`v*`) or manual dispatch or via `workflow_call` from `sync-upstream.yml`.
+- Dynamically provisions a release signing keystore if repository secrets are omitted, ensuring CI release builds never fail due to missing certificates.
+- Environment-agnostic Gradle toolchain: removed hardcoded Windows JVM paths from `gradle.properties` to ensure smooth Linux GitHub Actions builds while honoring `$JAVA_HOME`.
 - Compiles the production Universal GMS APK using `./gradlew assembleUniversalGmsRelease`.
 - Generates `changelog.json` containing structured changelog entries.
 - Publishes a new GitHub Release on `DeepBlue9789/Echo-Music` with assets:

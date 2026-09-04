@@ -138,8 +138,8 @@ android {
             isShrinkResources = true
             isCrunchPngs = false
             isDebuggable = false
-            val releaseKeystore = file("keystore/release.keystore")
-            if (releaseKeystore.exists() && !System.getenv("STORE_PASSWORD").isNullOrEmpty()) {
+            val hasReleaseKeystore = (rootProject.file("keystore.jks").exists() || file("keystore/release.keystore").exists()) && !System.getenv("STORE_PASSWORD").isNullOrEmpty()
+            if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
                 signingConfig = signingConfigs.getByName("debug")

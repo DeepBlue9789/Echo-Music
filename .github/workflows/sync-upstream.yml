@@ -11,6 +11,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: write
+
 jobs:
   sync:
     name: Sync Upstream Changes
@@ -37,11 +40,13 @@ jobs:
 
       - name: Add Upstream Remote & Fetch
         run: |
-          git remote add upstream https://github.com/EchoMusicApp/Echo-Music.git
-          git fetch upstream main --tags
+          git remote add upstream https://github.com/EchoMusicApp/Echo-Music.git || git remote set-url upstream https://github.com/EchoMusicApp/Echo-Music.git
+          git fetch upstream main --no-tags
 
       - name: Check for New Upstream Commits
         id: check_upstream
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           LOCAL_HASH=$(git rev-parse HEAD)
           UPSTREAM_HASH=$(git rev-parse upstream/main)
@@ -51,10 +56,10 @@ jobs:
           COMMITS_BEHIND=$(git rev-list --count HEAD..upstream/main)
           echo "Commits behind upstream: $COMMITS_BEHIND"
           
-          UPSTREAM_LATEST_TAG=$(curl -s https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+          UPSTREAM_LATEST_TAG=$(gh api repos/EchoMusicApp/Echo-Music/releases/latest --jq .tag_name 2>/dev/null || curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
           echo "Upstream latest release tag: $UPSTREAM_LATEST_TAG"
           
-          FORK_LATEST_TAG=$(curl -s https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
+          FORK_LATEST_TAG=$(gh api repos/DeepBlue9789/Echo-Music/releases/latest --jq .tag_name 2>/dev/null || curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
           echo "Fork latest release tag: $FORK_LATEST_TAG"
           
           HAS_NEW_COMMITS=false
@@ -104,6 +109,9 @@ jobs:
     name: Trigger Release Build
     needs: sync
     if: needs.sync.outputs.new_release_needed == 'true'
+    permissions:
+      contents: write
     uses: ./.github/workflows/build-release.yml
     with:
       tag_name: ${{ needs.sync.outputs.target_tag }}
+    secrets: inherit
