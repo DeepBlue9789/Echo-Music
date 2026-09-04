@@ -119,7 +119,13 @@ android {
             keyPassword = "android"
         }
         create("release") {
-            storeFile = file("keystore/release.keystore")
+            val keystoreFile = rootProject.file("keystore.jks")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+            } else {
+                val localKeystore = file("keystore/release.keystore")
+                if (localKeystore.exists()) storeFile = localKeystore
+            }
             storePassword = System.getenv("STORE_PASSWORD")
             keyAlias = System.getenv("KEY_ALIAS")
             keyPassword = System.getenv("KEY_PASSWORD")
