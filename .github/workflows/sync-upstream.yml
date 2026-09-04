@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  workflows: write
 
 jobs:
   sync:
@@ -20,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      workflows: write
 
     outputs:
       new_release_needed: ${{ steps.check_upstream.outputs.new_release_needed }}
@@ -86,7 +88,12 @@ jobs:
             git add -A
             git commit -m "Resolve merge conflicts prioritizing fork ListenTogether features"
           }
-          git push origin main
+          git push origin main || {
+            echo "Push failed, checking if workflow file changes were rejected..."
+            git checkout HEAD~1 -- .github/workflows/
+            git commit --amend --no-edit
+            git push origin main
+          }
 
       - name: Determine Target Release Tag
         id: determine_tag
