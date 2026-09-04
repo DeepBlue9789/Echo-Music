@@ -217,3 +217,14 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - **Client & Player Cleanup**: In `ListenTogetherManager.kt`, `cleanup()` resets virtual timeline reference parameters and restores playback slew speed to 1.0x. `leaveRoom()` sends `LEAVE_ROOM` prior to WebSocket closure.
 - **Background Auto-Discovery Without Entering Menu**: In `P2PPartnerManager.kt`, added `observeAutoDiscoverable()` which listens directly to `ListenTogetherAutoDiscoverableKey` in DataStore. As long as the toggle is enabled, local P2P server and mDNS broadcasting/discovery are active whenever the app is running, without needing to navigate into the Listen Together screen.
 
+### J. Comprehensive Subsystem Hardening & Lifecycle Resiliency (v1.2.5)
+- **GZIP vs Protobuf Format Detection**: In `MessageCodec.kt`, fixed `detectMessageFormat` to inspect for GZIP magic header bytes (`0x1F`, `0x8B`) before checking for `{`. Prevented false conversion to `PROTOBUF` on compressed JSON. Added automatic try/catch JSON fallback in `encode()` and `decodePayload()` for all virtual timeline commands.
+- **Public Relay Seeking & Position-Aligned Play/Pause**: Restored seek handling in `handlePlaybackSync` for standard WebSocket relays (`PlaybackActions.SEEK`). Updated `PLAY` and `PAUSE` to align playback position if diverged past tolerance and refresh timeline reference parameters ($t_{\text{ref}}, p_{\text{ref}}, r$) so continuous drift evaluation stays active on non-P2P servers.
+- **Seamless Non-Pausing Auto-Transitions**: In `ListenTogetherManager.kt`, prevented host and peers from pausing into an artificial 4.5s buffer barrier on natural track transitions (`reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO`), preserving gapless queue playback.
+- **Universal Auto-Reconnect on Network Restored**: In `ListenTogetherClient.kt`, enabled network restoration reconnect for both public cloud rooms (`connect()`) and P2P sessions (`connectDirect()`), resolving the mobile/Wi-Fi handover disconnect bug.
+- **P2P Force Reconnect Routing**: Updated `forceReconnect()` to correctly call `connectDirect()` when `directTargetUrl != null`.
+- **Active Session Expiration Prevention**: Touched `ListenTogetherSessionTimestampKey` periodically during ping heartbeats so sessions $>10\text{ minutes}$ are not purged from DataStore on app recreate.
+- **Eliminated Dual-Broadcasting Conflict in P2P**: In `P2PWebSocketServer.kt`, suppressed redundant immediate `SYNC_PLAYBACK` messages when `PLAY_SCHEDULED`, `PAUSE_COMMAND`, or `SEEK_COMMAND` are broadcast, preserving the 250ms NTP execution barrier.
+- **Non-Destructive SYNC_QUEUE Updates**: Used `C.TIME_UNSET` when updating queue items without altering current playing track index to eliminate ExoPlayer audio pipeline flushes.
+
+

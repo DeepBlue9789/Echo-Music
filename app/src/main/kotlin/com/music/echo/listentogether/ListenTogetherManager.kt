@@ -251,9 +251,10 @@ class ListenTogetherManager @Inject constructor(
                         sendTrackChangeInternal(currentMeta)
                         
                         val otherUsersCount = (roomState.value?.users?.size ?: 1) - 1
+                        val isAutoTransition = reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO
                         
-                        if (otherUsersCount > 0) {
-                            Timber.tag(TAG).d("Room track transition: pausing host until peers buffer track $trackId")
+                        if (otherUsersCount > 0 && !isAutoTransition) {
+                            Timber.tag(TAG).d("Room track transition (manual): pausing host until peers buffer track $trackId")
                             isWaitingForPeersBuffer = true
                             bufferingTrackId = trackId
                             isSyncing = true
@@ -279,6 +280,9 @@ class ListenTogetherManager @Inject constructor(
                                 client.sendBufferReady(trackId)
                             }
                         } else {
+                            if (isAutoTransition) {
+                                Timber.tag(TAG).d("Auto transition to $trackId: maintaining gapless continuous playback")
+                            }
                             if (player.playWhenReady) {
                                 lastSyncedIsPlaying = true
                                 val position = player.currentPosition
@@ -490,10 +494,12 @@ class ListenTogetherManager @Inject constructor(
         metadataObservationJob?.cancel()
         metadataObservationJob = scope.launch {
             connection.mediaMetadata.collect { metadata ->
-                if (metadata != null && isInRoom && canControlMusic && !isSyncing) {
-                    if (metadata.id != lastSyncedTrackId) {
-                        Timber.tag(TAG).d("[SYNC] mediaMetadata state changed to: ${metadata.title} (${metadata.id})")
-                        lastSyncedTrackId = metadata.id
+                if (metadata != null && isInRoom && canControlMusic && !isSyncing && !isWaitingForPeersBuffer) {
+                    val normIncoming = normalizeTrackId(metadata.id)
+                    val normLast = normalizeTrackId(lastSyncedTrackId)
+                    if (normIncoming.isNotEmpty() && normIncoming != normLast) {
+                        Timber.tag(TAG).d("[SYNC] mediaMetadata state changed to: ${metadata.title} ($normIncoming)")
+                        lastSyncedTrackId = normIncoming
                         sendTrackChangeInternal(metadata)
 
                         val otherUsersCount = (roomState.value?.users?.size ?: 1) - 1
@@ -740,7 +746,6 @@ class ListenTogetherManager @Inject constructor(
             
             is ListenTogetherEvent.PlaybackSync -> {
                 Timber.tag(TAG).d("PlaybackSync received: ${event.action.action}")
-                if (isSyncing) return
                 handlePlaybackSync(event.action)
             }
             
@@ -1075,6 +1080,8 @@ class ListenTogetherManager @Inject constructor(
         lastRole = RoomRole.NONE
         lastSyncActionTime = 0L  
         ++currentTrackGeneration  
+        activeSyncJob?.cancel()
+        activeSyncJob = null
         stopSyncController()
         scheduledPlayJob?.cancel()
         timelineRefPosSec = 0.0
@@ -1575,7 +1582,17 @@ class ListenTogetherManager @Inject constructor(
         try {
             when (action.action) {
                 PlaybackActions.PLAY -> {
-                    Timber.tag(TAG).d("Partner: PLAY in SYNC_PLAYBACK received")
+                    Timber.tag(TAG).d("Partner: PLAY in SYNC_PLAYBACK received (pos=${action.position})")
+                    action.position?.let { pos ->
+                        val diff = kotlin.math.abs(player.currentPosition - pos)
+                        if (diff > POSITION_TOLERANCE_MS && pos >= 0) {
+                            Timber.tag(TAG).d("Partner PLAY: aligning position from ${player.currentPosition} to $pos (diff ${diff}ms)")
+                            player.seekTo(pos)
+                        }
+                        timelineRefPosSec = (pos / 1000.0)
+                        timelineRefTime = action.serverTime ?: System.currentTimeMillis()
+                        timelineRate = 1.0
+                    }
                     if (!player.isPlaying && !isWaitingForPeersBuffer) {
                         connection.play()
                         lastSyncedIsPlaying = true
@@ -1584,17 +1601,43 @@ class ListenTogetherManager @Inject constructor(
                 }
                 
                 PlaybackActions.PAUSE -> {
-                    Timber.tag(TAG).d("Partner: PAUSE in SYNC_PLAYBACK received")
+                    Timber.tag(TAG).d("Partner: PAUSE in SYNC_PLAYBACK received (pos=${action.position})")
+                    action.position?.let { pos ->
+                        val diff = kotlin.math.abs(player.currentPosition - pos)
+                        if (diff > POSITION_TOLERANCE_MS && pos >= 0) {
+                            Timber.tag(TAG).d("Partner PAUSE: aligning position from ${player.currentPosition} to $pos (diff ${diff}ms)")
+                            player.seekTo(pos)
+                        }
+                        timelineRefPosSec = (pos / 1000.0)
+                        timelineRefTime = action.serverTime ?: System.currentTimeMillis()
+                        timelineRate = 0.0
+                    }
                     if (player.isPlaying) {
                         connection.pause()
                         lastSyncedIsPlaying = false
                     }
+                    resetPlaybackSpeed()
                     return
                 }
 
                 PlaybackActions.SEEK -> {
-                    // Under Server-Authoritative Virtual Timeline, SEEK is managed authoritatively by SEEK_COMMAND
-                    Timber.tag(TAG).d("Partner: SEEK in SYNC_PLAYBACK received (managed authoritatively by SEEK_COMMAND)")
+                    action.position?.let { targetMs ->
+                        val currentPos = player.currentPosition
+                        val diff = kotlin.math.abs(currentPos - targetMs)
+                        Timber.tag(TAG).d("Partner: SEEK in SYNC_PLAYBACK to $targetMs (current=$currentPos, diff=${diff}ms)")
+                        if (diff > 500L && targetMs >= 0) {
+                            resumeGracePeriodUntil = SystemClock.elapsedRealtime() + 4000L
+                            consecutiveHardDriftTicks = 0
+                            isApplyingRemoteState = true
+                            player.seekTo(targetMs)
+                            timelineRefPosSec = (targetMs / 1000.0)
+                            timelineRefTime = action.serverTime ?: System.currentTimeMillis()
+                            scope.launch {
+                                delay(300)
+                                isApplyingRemoteState = false
+                            }
+                        }
+                    }
                     return
                 }
                 
@@ -1754,7 +1797,11 @@ class ListenTogetherManager @Inject constructor(
                             
                             connection.allowInternalSync = true
                             if (newIndex != -1) {
-                                player.setMediaItems(mediaItems, newIndex, currentPos)
+                                if (player.currentMediaItemIndex == newIndex) {
+                                    player.setMediaItems(mediaItems, newIndex, androidx.media3.common.C.TIME_UNSET)
+                                } else {
+                                    player.setMediaItems(mediaItems, newIndex, currentPos)
+                                }
                             } else {
                                 player.setMediaItems(mediaItems)
                             }

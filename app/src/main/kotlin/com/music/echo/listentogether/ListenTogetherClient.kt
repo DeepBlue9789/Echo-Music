@@ -263,10 +263,14 @@ class ListenTogetherClient @Inject constructor(
                         if (_connectionState.value == ConnectionState.ERROR || 
                             _connectionState.value == ConnectionState.DISCONNECTED) {
                             
-                            if (_roomState.value != null && directTargetUrl != null) {
+                            if (directTargetUrl != null) {
                                 log(LogLevel.INFO, "Network restored, triggering P2P reconnection")
                                 reconnectAttempts = 0 
                                 connectDirect(directTargetUrl!!, storedUsername ?: "Echo Device")
+                            } else if (sessionToken != null || storedRoomCode != null || hasPersistedSession || pendingAction != null) {
+                                log(LogLevel.INFO, "Network restored, triggering central server reconnection")
+                                reconnectAttempts = 0
+                                connect()
                             }
                         }
                     } else if (!available && previous) {
@@ -628,12 +632,27 @@ class ListenTogetherClient @Inject constructor(
         scope.launch { _events.emit(ListenTogetherEvent.Disconnected) }
     }
 
+    private fun touchSessionTimestamp() {
+        if (sessionToken != null && storedRoomCode != null && storedRoomCode != "P2P-MESH" && directTargetUrl == null) {
+            scope.launch {
+                try {
+                    context.dataStore.edit { preferences ->
+                        preferences[ListenTogetherSessionTimestampKey] = System.currentTimeMillis()
+                    }
+                } catch (e: Exception) {
+                    // Ignore persistence touch errors
+                }
+            }
+        }
+    }
+
     private fun startPingJob() {
         pingJob?.cancel()
         pingJob = scope.launch {
             while (true) {
                 delay(PING_INTERVAL_MS)
                 pingSentTime = System.currentTimeMillis()
+                touchSessionTimestamp()
                 sendMessageNoPayload(MessageTypes.PING)
             }
         }
@@ -1507,7 +1526,6 @@ class ListenTogetherClient @Inject constructor(
     }
 
     fun sendClockSyncRequest(clientT1: Long) {
-        if (codec.format == MessageFormat.PROTOBUF) return
         sendMessage(MessageTypes.CLOCK_SYNC_REQ, ClockSyncRequestPayload(clientT1))
     }
 
@@ -1666,7 +1684,11 @@ class ListenTogetherClient @Inject constructor(
         
         scope.launch {
             delay(500)
-            connect()
+            if (directTargetUrl != null) {
+                connectDirect(directTargetUrl!!, storedUsername ?: "Echo Device")
+            } else {
+                connect()
+            }
         }
     }
     
@@ -1729,14 +1751,13 @@ class ClockSynchronizer(
     }
 
     private suspend fun runBurst(isInitial: Boolean) {
-        synchronized(samples) { samples.clear() }
         for (i in 0 until BURST_COUNT) {
             if (client.connectionState.value != ConnectionState.CONNECTED) break
             val t1 = SystemClock.elapsedRealtime()
             client.sendClockSyncRequest(t1)
-            delay(50L)
+            delay(60L)
         }
-        delay(300L) // Wait for responses
+        delay(400L) // Wait for responses
         processSamples(isInitial)
     }
 
@@ -1753,7 +1774,11 @@ class ClockSynchronizer(
 
         synchronized(samples) {
             samples.add(ClockSample(rtt, offset))
+            if (samples.size > 16) {
+                samples.removeAt(0)
+            }
         }
+        processSamples(false)
     }
 
     private fun processSamples(isInitial: Boolean) {

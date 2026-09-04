@@ -387,8 +387,14 @@ class P2PWebSocketServer(
                     stateVersion = nextVersion
                 )
                 applyPlaybackAction(enrichedAction, session?.userId)
-                // Broadcast playback sync with stateVersion & serverTime to all other peers
-                broadcastMessage(MessageTypes.SYNC_PLAYBACK, enrichedAction, excludePeer = conn)
+                // For PLAY, PAUSE, SEEK, authoritative timeline commands (PLAY_SCHEDULED, PAUSE_COMMAND, SEEK_COMMAND)
+                // are already broadcast with synchronized timestamps. Only broadcast SYNC_PLAYBACK for other actions
+                // (e.g. CHANGE_TRACK, SKIP_NEXT, SKIP_PREV, QUEUE_*, SET_VOLUME) to prevent premature play/pause races.
+                if (enrichedAction.action != PlaybackActions.PLAY &&
+                    enrichedAction.action != PlaybackActions.PAUSE &&
+                    enrichedAction.action != PlaybackActions.SEEK) {
+                    broadcastMessage(MessageTypes.SYNC_PLAYBACK, enrichedAction, excludePeer = conn)
+                }
             }
 
             MessageTypes.BUFFER_READY -> {
@@ -653,6 +659,9 @@ class P2PWebSocketServer(
                 if (vol != null) {
                     _roomState.value = currentState.copy(volume = vol.coerceIn(0f, 1f), stateVersion = effectiveVersion)
                 }
+            }
+            PlaybackActions.SKIP_NEXT, PlaybackActions.SKIP_PREV -> {
+                Timber.tag(TAG).d("P2P: ${action.action} handled for peer $senderUserId")
             }
         }
     }

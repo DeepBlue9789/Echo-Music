@@ -26,13 +26,43 @@ class MessageCodec(
         private const val TAG = "MessageCodec"
         private const val COMPRESSION_THRESHOLD = 100 
         
+        fun decompressData(data: ByteArray): ByteArray? {
+            return try {
+                val inputStream = ByteArrayInputStream(data)
+                GZIPInputStream(inputStream).use { gzip ->
+                    gzip.readBytes()
+                }
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "Failed to decompress data")
+                null
+            }
+        }
         
         fun detectMessageFormat(data: ByteArray): MessageFormat {
             if (data.isEmpty()) return MessageFormat.JSON
             
+            // Check if compressed with GZIP (magic bytes 0x1f, 0x8b)
+            if (data.size > 2 && data[0] == 0x1f.toByte() && data[1] == 0x8b.toByte()) {
+                val decompressed = decompressData(data)
+                if (decompressed != null && decompressed.isNotEmpty()) {
+                    if (decompressed[0] == '{'.code.toByte()) return MessageFormat.JSON
+                    return try {
+                        Listentogether.Envelope.parseFrom(decompressed)
+                        MessageFormat.PROTOBUF
+                    } catch (e: Exception) {
+                        MessageFormat.JSON
+                    }
+                }
+            }
+            
             if (data[0] == '{'.code.toByte()) return MessageFormat.JSON
             
-            return MessageFormat.PROTOBUF
+            return try {
+                Listentogether.Envelope.parseFrom(data)
+                MessageFormat.PROTOBUF
+            } catch (e: Exception) {
+                MessageFormat.JSON
+            }
         }
     }
     
@@ -41,21 +71,29 @@ class MessageCodec(
         isLenient = true
     }
     
-    
     fun encode(msgType: String, payload: Any?): ByteArray {
         return if (format == MessageFormat.PROTOBUF) {
-            encodeProtobuf(msgType, payload)
+            try {
+                encodeProtobuf(msgType, payload)
+            } catch (e: Exception) {
+                Timber.tag(TAG).w("Protobuf encoding not supported for $msgType, falling back to JSON: ${e.message}")
+                encodeJson(msgType, payload)
+            }
         } else {
             encodeJson(msgType, payload)
         }
     }
     
-    
     fun decode(data: ByteArray): Pair<String, ByteArray> {
         val detectedFormat = detectMessageFormat(data)
         
         return if (detectedFormat == MessageFormat.PROTOBUF) {
-            decodeProtobuf(data)
+            try {
+                decodeProtobuf(data)
+            } catch (e: Exception) {
+                Timber.tag(TAG).w("Failed to decode Protobuf envelope, falling back to JSON: ${e.message}")
+                decodeJson(data)
+            }
         } else {
             decodeJson(data)
         }
@@ -230,7 +268,12 @@ class MessageCodec(
         if (payloadBytes.isEmpty()) return null
         
         return if (format == MessageFormat.PROTOBUF) {
-            decodeProtobufPayload(msgType, payloadBytes)
+            try {
+                decodeProtobufPayload(msgType, payloadBytes)
+                    ?: decodeJsonPayload(msgType, payloadBytes)
+            } catch (e: Exception) {
+                decodeJsonPayload(msgType, payloadBytes)
+            }
         } else {
             decodeJsonPayload(msgType, payloadBytes)
         }
