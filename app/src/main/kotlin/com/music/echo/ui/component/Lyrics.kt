@@ -520,6 +520,21 @@ fun Lyrics(
     val expressiveAccent = Color.White
     val textColor = Color.White
 
+    val showRomanizedLyrics = currentSong?.romanizeLyrics == true && (
+        romanizeJapaneseLyrics ||
+            romanizeKoreanLyrics ||
+            romanizeRussianLyrics ||
+            romanizeUkrainianLyrics ||
+            romanizeSerbianLyrics ||
+            romanizeBulgarianLyrics ||
+            romanizeBelarusianLyrics ||
+            romanizeKyrgyzLyrics ||
+            romanizeMacedonianLyrics ||
+            romanizeChineseLyrics ||
+            romanizeHindiLyrics ||
+            romanizePunjabiLyrics
+    )
+
     var currentLineIndex by remember {
         mutableIntStateOf(-1)
     }
@@ -939,7 +954,7 @@ fun Lyrics(
                             distanceFromCurrent = kotlin.math.abs(index - displayedCurrentLineIndex),
                             lyricsTextPosition = lyricsTextPosition,
                             textColor = textColor,
-                            showRomanized = false,
+                            showRomanized = showRomanizedLyrics,
                             textSize = lyricsTextSize,
                             lineSpacing = lyricsLineSpacing,
                             showTranslated = hasActiveTranslations,
@@ -1008,7 +1023,7 @@ fun Lyrics(
                             distanceFromCurrent = kotlin.math.abs(index - displayedCurrentLineIndex),
                             lyricsTextPosition = lyricsTextPosition,
                             textColor = textColor,
-                            showRomanized = false,
+                            showRomanized = showRomanizedLyrics,
                             showTranslated = hasActiveTranslations,
                             isAutoScrollActive = isAutoScrollEnabled,
                             isSelectionModeActive = isSelectionModeActive,
@@ -1667,7 +1682,7 @@ fun Lyrics(
                                 }
                                 
                                 
-                                if (false) {
+                                if (hasActiveTranslations) {
                                     val translatedText by item.translatedTextFlow.collectAsState()
                                     translatedText?.let { translated ->
                                         Text(
@@ -1692,7 +1707,7 @@ fun Lyrics(
                                 inactiveAlpha = 0.35f, 
                                 baseFontSize = lyricsTextSize,
                                 lineHeight = lyricsTextSize * lyricsLineSpacing.coerceAtMost(1.3f),
-                                showTranslated = false,
+                                showTranslated = hasActiveTranslations,
                                 agentAlignment = agentAlignment,
                                 agentTextAlign = agentTextAlign
                             )
@@ -1800,7 +1815,7 @@ fun Lyrics(
                                 lineHeight = (lyricsTextSize * lyricsLineSpacing.coerceAtMost(1.3f)).sp
                             )
                         }
-                        if (false) {
+                        if (showRomanizedLyrics) {
                             
                             subText?.let { text ->
                                 Text(
@@ -1819,7 +1834,7 @@ fun Lyrics(
                         }
                         
                         
-                        if (false && 
+                        if (hasActiveTranslations && 
                             lyricsAnimationStyle != LyricsAnimationStyle.LYRICS_V2 && 
                             lyricsAnimationStyle != LyricsAnimationStyle.APPLE_V2) {
                             val translatedText by item.translatedTextFlow.collectAsState()

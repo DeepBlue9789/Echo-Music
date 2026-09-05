@@ -291,3 +291,21 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 ### C. CI/CD Release Automation
 - **GitHub Actions (`build-release.yml`)**: Configured with `make_latest: "true"` on `softprops/action-gh-release@v2` so every new release tag published to `DeepBlue9789/Echo-Music` automatically receives the "Latest" badge on GitHub.
 - **In-App Updater Endpoint**: Verified pointing to `https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest`, ensuring all installed devices detect new releases automatically.
+
+---
+
+## 10. Upstream PR #305 Lyrics Rendering Regression & Fix
+
+### A. Root Cause Analysis
+- **Regression Commit**: `b56d2b31fb5aac4d2e4f18d51185a2129c6b884d` (*"feat(player): add inline synced lyrics view to player screen (#305)"*).
+- **Bug Mechanism**: The author introduced `PlayerSyncedLyricsView.kt` for displaying single active lyric lines on the player screen and intended to omit translations/romanizations from only the inline player widget. However, in `Lyrics.kt` (the full-screen lyrics screen), the author mistakenly hardcoded:
+  - `showRomanized = false` in `echomusicLyricsLine` and `MetroLyricsLine`
+  - `if (false)` around translated text in word/syllable sync mode (`APPLE_V2`)
+  - `showTranslated = false` in `LyricsLineV2`
+  - `if (false)` around romanized subtext in standard text rendering
+  - `if (false && ...)` around translated text in classic/standard animation styles
+- **Result**: AI translation requests succeeded in `LyricsTranslationHelper.kt` and were persisted in Room DB, but were never rendered on the screen due to the hardcoded `false` conditions.
+
+### B. Resolution
+- Restored `showRomanizedLyrics` (checking `currentSong?.romanizeLyrics` across all language preferences: Japanese, Korean, Russian, Ukrainian, Serbian, Bulgarian, Belarusian, Kyrgyz, Macedonian, Chinese, Hindi, Punjabi).
+- Restored `hasActiveTranslations` rendering across all lyrics animation styles (`ECHOMUSIC`, `METRO_LYRICS`, `LYRICS_V2`, `APPLE_V2`, classic/fallback).
