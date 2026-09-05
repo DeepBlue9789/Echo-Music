@@ -83,13 +83,13 @@ object JioSaavnAudioResolver {
         ) ?: return null
 
         // 3. Decrypt 320kbps media URL
-        val streamUrl = JioSaavnDecryptor.decryptMediaUrl(matchedSong.encryptedMediaUrl)
+        val streamUrl = JioSaavnDecryptor.decryptMediaUrl(matchedSong.effectiveEncryptedMediaUrl)
             ?: return null
 
         return JioSaavnResolvedTrack(
             id = matchedSong.id,
-            title = unescapeHtml(matchedSong.song),
-            artist = unescapeHtml(matchedSong.primaryArtists),
+            title = unescapeHtml(matchedSong.effectiveTitle),
+            artist = unescapeHtml(matchedSong.effectiveArtists),
             durationSec = matchedSong.durationSeconds,
             streamUrl = streamUrl
         )
@@ -99,51 +99,55 @@ object JioSaavnAudioResolver {
         candidates: List<JioSaavnSongRaw>,
         targetTitle: String,
         targetDurationSec: Int?,
-        durationToleranceSec: Int
+        durationToleranceSec: Int = 10
     ): JioSaavnSongRaw? {
         val normalizedTarget = normalizeString(targetTitle)
 
         // Filter candidates with valid encrypted media urls
-        val eligible = candidates.filter { it.encryptedMediaUrl.isNotBlank() }
+        val eligible = candidates.filter { it.effectiveEncryptedMediaUrl.isNotBlank() }
 
-        // If target duration is known, strictly require duration match
+        // If target duration is known, test with tight tolerance (4s) first, then relaxed (durationToleranceSec)
         if (targetDurationSec != null && targetDurationSec > 0) {
-            val durationMatched = eligible.filter {
-                abs(it.durationSeconds - targetDurationSec) <= durationToleranceSec
-            }
-
-            // Among duration matched, find best title match
-            durationMatched.forEach { candidate ->
-                val candidateTitle = normalizeString(unescapeHtml(candidate.song))
-                if (isTitleCompatible(candidateTitle, normalizedTarget)) {
-                    return candidate
+            val tolerances = listOf(4, durationToleranceSec.coerceAtLeast(4))
+            for (tolerance in tolerances) {
+                val durationMatched = eligible.filter {
+                    abs(it.durationSeconds - targetDurationSec) <= tolerance
                 }
-            }
 
-            // If strict title compatibility didn't match, check first duration match if title overlaps
-            durationMatched.firstOrNull { candidate ->
-                val candidateTitle = normalizeString(unescapeHtml(candidate.song))
-                candidateTitle.contains(normalizedTarget) || normalizedTarget.contains(candidateTitle)
-            }?.let { return it }
+                // Among duration matched, find best title match
+                durationMatched.forEach { candidate ->
+                    val candidateTitle = normalizeString(unescapeHtml(candidate.effectiveTitle))
+                    if (isTitleCompatible(candidateTitle, normalizedTarget)) {
+                        return candidate
+                    }
+                }
+
+                // If strict title compatibility didn't match, check first duration match if title overlaps
+                durationMatched.firstOrNull { candidate ->
+                    val candidateTitle = normalizeString(unescapeHtml(candidate.effectiveTitle))
+                    candidateTitle.contains(normalizedTarget) || normalizedTarget.contains(candidateTitle)
+                }?.let { return it }
+            }
 
             return null
         }
 
         // Duration unknown - fallback to title matching
         return eligible.firstOrNull { candidate ->
-            val candidateTitle = normalizeString(unescapeHtml(candidate.song))
+            val candidateTitle = normalizeString(unescapeHtml(candidate.effectiveTitle))
             isTitleCompatible(candidateTitle, normalizedTarget)
         }
     }
 
     private fun normalizeString(str: String): String {
         return str.lowercase()
-            .replace(Regex("""[^a-z0-9\s]"""), "")
+            .replace(Regex("""[^\p{L}\p{N}\s]"""), "")
             .replace(Regex("""\s+"""), " ")
             .trim()
     }
 
     private fun isTitleCompatible(candidate: String, target: String): Boolean {
+        if (candidate.isBlank() || target.isBlank()) return false
         if (candidate == target) return true
         if (candidate.startsWith(target) || target.startsWith(candidate)) return true
         val targetWords = target.split(" ").filter { it.length > 2 }

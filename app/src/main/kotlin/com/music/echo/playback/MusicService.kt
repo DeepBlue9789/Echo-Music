@@ -2781,7 +2781,15 @@ class MusicService :
                                     .Builder()
                                     .dns(object : Dns {
                                         override fun lookup(hostname: String): List<InetAddress> {
-                                            val addresses = Dns.SYSTEM.lookup(hostname)
+                                            val addresses = try {
+                                                Dns.SYSTEM.lookup(hostname)
+                                            } catch (e: Exception) {
+                                                if (hostname.contains("saavn")) {
+                                                    com.music.jiosaavn.api.JioSaavnDns.lookup(hostname)
+                                                } else {
+                                                    throw e
+                                                }
+                                            }
                                             return when (this@MusicService.ipVersion) {
                                                 IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
                                                 IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }
@@ -3003,24 +3011,43 @@ class MusicService :
                 val knownDuration = dbSong?.song?.duration?.let { if (it > 0) it * 1000L else null }
 
                 if (lockedQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS) {
-                    val songTitle = knownTitle ?: runCatching {
+                    var songTitle = knownTitle ?: runCatching {
                         withContext(Dispatchers.Main) {
                             player.findNextMediaItemById(mediaId)?.metadata?.title
                         }
                     }.getOrNull()
 
-                    val songArtist = knownArtist ?: runCatching {
+                    var songArtist = knownArtist ?: runCatching {
                         withContext(Dispatchers.Main) {
                             player.findNextMediaItemById(mediaId)?.metadata?.artists?.joinToString { it.name }
                         }
                     }.getOrNull()
 
-                    val songDurationSec = (dbSong?.song?.duration?.takeIf { it > 0 })
+                    var songDurationSec = (dbSong?.song?.duration?.takeIf { it > 0 })
                         ?: runCatching {
                             withContext(Dispatchers.Main) {
                                 player.findNextMediaItemById(mediaId)?.metadata?.duration?.takeIf { it > 0 }
                             }
                         }.getOrNull()
+
+                    // If metadata is still null, query InnerTube for metadata
+                    if (songTitle.isNullOrBlank()) {
+                        runCatching {
+                            val metaResp = YTPlayerUtils.playerResponseForMetadata(mediaId).getOrNull()
+                            val details = metaResp?.videoDetails
+                            if (details != null) {
+                                songTitle = details.title
+                                if (songArtist.isNullOrBlank()) {
+                                    songArtist = details.author
+                                }
+                                if (songDurationSec == null || songDurationSec == 0) {
+                                    songDurationSec = details.lengthSeconds.toIntOrNull()
+                                }
+                            }
+                        }
+                    }
+
+                    Timber.tag("MusicService").i("JioSaavn resolving for title='$songTitle' artist='$songArtist' durationSec=$songDurationSec")
 
                     val saavnTrack = runCatching {
                         com.music.jiosaavn.JioSaavnAudioResolver.resolveStream(
@@ -3028,6 +3055,8 @@ class MusicService :
                             artist = songArtist,
                             durationSec = songDurationSec
                         )
+                    }.onFailure {
+                        Timber.tag("MusicService").e(it, "JioSaavn resolution threw exception")
                     }.getOrNull()
 
                     if (saavnTrack != null) {
@@ -4230,14 +4259,53 @@ class MusicService :
                     kotlin.runCatching {
                         val dbSong = database.song(mediaId).firstOrNull()
                         val knownArtist = dbSong?.artists?.joinToString(separator = ", ") { artist -> artist.name }?.replace(" - Topic", "")
-                        
-                        val playbackData = echo.music.iad1tya.utils.YTPlayerUtils.playerResponseForPlayback(
-                            videoId = mediaId,
-                            audioQuality = audioQuality,
-                            connectivityManager = connectivityManager
-                        )
+                        val knownTitle = dbSong?.song?.title
+                        val knownDuration = dbSong?.song?.duration?.takeIf { it > 0 }
 
-                        playbackData.getOrNull()?.streamUrl?.let { streamUrl ->
+                        var preloadedUrl: String? = null
+                        if (audioQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS) {
+                            val songTitle = knownTitle ?: runCatching {
+                                withContext(Dispatchers.Main) {
+                                    player.findNextMediaItemById(mediaId)?.metadata?.title
+                                }
+                            }.getOrNull()
+
+                            val songArtist = knownArtist ?: runCatching {
+                                withContext(Dispatchers.Main) {
+                                    player.findNextMediaItemById(mediaId)?.metadata?.artists?.joinToString { it.name }
+                                }
+                            }.getOrNull()
+
+                            val songDurationSec = knownDuration ?: runCatching {
+                                withContext(Dispatchers.Main) {
+                                    player.findNextMediaItemById(mediaId)?.metadata?.duration?.takeIf { it > 0 }
+                                }
+                            }.getOrNull()
+
+                            val saavnTrack = runCatching {
+                                com.music.jiosaavn.JioSaavnAudioResolver.resolveStream(
+                                    title = songTitle,
+                                    artist = songArtist,
+                                    durationSec = songDurationSec
+                                )
+                            }.getOrNull()
+
+                            if (saavnTrack != null) {
+                                preloadedUrl = saavnTrack.streamUrl
+                                Timber.tag(TAG).i("Preloaded JioSaavn 320kbps stream for $mediaId (${saavnTrack.title})")
+                            }
+                        }
+
+                        if (preloadedUrl == null) {
+                            val playbackData = echo.music.iad1tya.utils.YTPlayerUtils.playerResponseForPlayback(
+                                videoId = mediaId,
+                                audioQuality = echo.music.iad1tya.constants.AudioQuality.OPUS,
+                                connectivityManager = connectivityManager
+                            )
+                            preloadedUrl = playbackData.getOrNull()?.streamUrl
+                        }
+
+                        preloadedUrl?.let { streamUrl ->
                             songUrlCache["${mediaId}_${audioQuality.name}"] = Pair(streamUrl, System.currentTimeMillis() + 1000 * 60 * 60)
                             Timber.tag(TAG).d("Preloaded stream for $mediaId")
                         }

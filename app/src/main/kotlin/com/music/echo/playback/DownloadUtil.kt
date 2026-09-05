@@ -80,7 +80,15 @@ constructor(
                     OkHttpClient.Builder()
                         .dns(object : Dns {
                             override fun lookup(hostname: String): List<InetAddress> {
-                                val addresses = Dns.SYSTEM.lookup(hostname)
+                                val addresses = try {
+                                    Dns.SYSTEM.lookup(hostname)
+                                } catch (e: Exception) {
+                                    if (hostname.contains("saavn")) {
+                                        com.music.jiosaavn.api.JioSaavnDns.lookup(hostname)
+                                    } else {
+                                        throw e
+                                    }
+                                }
                                 return when (this@DownloadUtil.ipVersion) {
                                     IpVersion.IPV4 -> addresses.filter { it is Inet4Address }.ifEmpty { addresses }
                                     IpVersion.IPV6 -> addresses.filter { it is Inet6Address }.ifEmpty { addresses }

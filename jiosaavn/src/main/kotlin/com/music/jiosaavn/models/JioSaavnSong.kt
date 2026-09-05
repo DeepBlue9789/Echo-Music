@@ -15,6 +15,7 @@ data class JioSaavnSearchResponse(
 @Serializable
 data class JioSaavnSongRaw(
     val id: String = "",
+    val title: String = "",
     val song: String = "",
     val album: String = "",
     val year: String = "",
@@ -28,17 +29,60 @@ data class JioSaavnSongRaw(
     val encryptedMediaUrl: String = "",
     @SerialName("media_preview_url")
     val mediaPreviewUrl: String = "",
-    val image: String = ""
+    val image: String = "",
+    @SerialName("more_info")
+    val moreInfo: JioSaavnMoreInfo? = null
 ) {
+    val effectiveTitle: String
+        get() = song.ifBlank { title }
+
+    val effectiveArtists: String
+        get() = primaryArtists.ifBlank {
+            moreInfo?.artistMap?.primaryArtists?.joinToString(", ") { it.name }
+                ?: moreInfo?.music.orEmpty()
+        }
+
+    val effectiveEncryptedMediaUrl: String
+        get() = encryptedMediaUrl.ifBlank { moreInfo?.encryptedMediaUrl.orEmpty() }
+
     val is320Available: Boolean
         get() {
-            val prim = has320kbps?.jsonPrimitive ?: return true
+            val prim = (has320kbps ?: moreInfo?.has320kbps)?.jsonPrimitive ?: return true
             return prim.booleanOrNull ?: (prim.content.equals("true", ignoreCase = true))
         }
 
     val durationSeconds: Int
-        get() = duration.toIntOrNull() ?: 0
+        get() {
+            val d = duration.toIntOrNull() ?: moreInfo?.duration?.toIntOrNull() ?: 0
+            return d
+        }
 }
+
+@Serializable
+data class JioSaavnMoreInfo(
+    val music: String = "",
+    val album: String = "",
+    @SerialName("320kbps")
+    val has320kbps: JsonElement? = null,
+    @SerialName("encrypted_media_url")
+    val encryptedMediaUrl: String = "",
+    val duration: String = "0",
+    val artistMap: JioSaavnArtistMap? = null
+)
+
+@Serializable
+data class JioSaavnArtistMap(
+    @SerialName("primary_artists")
+    val primaryArtists: List<JioSaavnArtist> = emptyList(),
+    val artists: List<JioSaavnArtist> = emptyList()
+)
+
+@Serializable
+data class JioSaavnArtist(
+    val id: String = "",
+    val name: String = "",
+    val role: String = ""
+)
 
 data class JioSaavnResolvedTrack(
     val id: String,
