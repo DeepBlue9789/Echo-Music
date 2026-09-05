@@ -416,7 +416,7 @@ highlightKey: String? = null) {
                             }
                         )
                     },
-                    onClick = null
+                    onClick = { showAudioQualityDialog = true }
                 ))
                 
                 add(Material3SettingsItem(
