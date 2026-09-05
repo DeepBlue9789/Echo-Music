@@ -243,22 +243,51 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - **Non-Destructive SYNC_QUEUE Updates**: Used `C.TIME_UNSET` when updating queue items without altering current playing track index to eliminate ExoPlayer audio pipeline flushes.
  
 ---
- 
+
 ## 8. JioSaavn 320kbps High Fidelity Audio Architecture
  
 ### A. Module Isolation & Upstream Merge Safety
 - **Standalone Module (`:jiosaavn`)**: Implemented as an independent Gradle library module under `jiosaavn/` with zero file overlap with upstream `EchoMusicApp/Echo-Music`. Automated upstream merges via `.github/workflows/sync-upstream.yml` will never encounter conflicts inside this module.
-- **Ktor OkHttp Engine**: Uses Ktor client with Kotlinx Serialization and OkHttp engine for high-performance direct CDN requests.
+- **Ktor OkHttp Engine with Content-Type Resilience**: Uses Ktor client with OkHttp engine and Kotlinx Serialization. JioSaavn's `api.php` returns `Content-Type: text/html; charset=UTF-8` instead of `application/json`; the client uses `.bodyAsText()` followed by manual `jsonConfig.decodeFromString(...)` to prevent `NoTransformationFoundException`.
+- **Nested `more_info` Serialization**: JioSaavn response payloads place `encrypted_media_url`, `duration`, and `artistMap` inside a nested `more_info` object for certain query types. The data model (`JioSaavnSongRaw`) transparently resolves `effectiveEncryptedMediaUrl`, `effectiveTitle`, `effectiveArtists`, and fallback duration calculations.
  
 ### B. DES Decryption & 320kbps URL Elevation
 - **Cipher**: Uses DES in ECB mode with PKCS5Padding and cipher key `38346591`. Decrypts Base64-encoded `encrypted_media_url` returned by JioSaavn search API.
 - **Quality Elevation**: Upgrades the returned `_96.mp4` / `_160.mp4` bitrate token to `_320.mp4` (or `.m4a`), resolving direct Akamai/Azure CDN URLs delivering 320 kbps AAC streams.
  
-### C. Verification & Zero-Interruption YouTube Opus Fallback
-- **Duration Match Filter**: Verifies song duration against YouTube metadata within a $\pm 4\text{s}$ tolerance window. Prevents incorrect audio streams for remixes, live versions, or acoustic edits.
-- **Title Sanitization**: Cleans metadata strings to remove YouTube-specific suffixes (`(Official Video)`, `[Official Audio]`, `feat.`, etc.) before querying.
-- **Transparent Fallback**: If a song is absent from JioSaavn or network requests fail, playback falls back instantly to YouTube Opus (~160 kbps) with zero user-facing errors or interruptions.
-- **UI Quality Display**: When JioSaavn plays, the player codec badge dynamically displays `AAC • 320 kbps`; on YouTube fallback, it displays `OPUS • 160 kbps`.
+### C. Resilient Edge DNS Resolution (`JioSaavnDns.kt`)
+- **Root Cause of Fallback to Opus**: On devices with active VPNs (e.g. Tailscale) or private DNS, Android's system resolver (`Dns.SYSTEM`) often throws `UnknownHostException` (`EAI_NODATA`) when resolving `www.jiosaavn.com` or `aac.saavncdn.com`.
+- **Three-Tier Fallback Mechanism**:
+  1. **System DNS**: First attempts standard `Dns.SYSTEM.lookup(hostname)`.
+  2. **Instant Akamai Edge IPs (< 1ms)**: If system DNS fails, immediately maps `www.jiosaavn.com` and `aac.saavncdn.com` to verified Anycast edge IPs (`184.84.167.8`, `184.84.167.25`, `23.199.67.104`, `23.57.75.35`, etc.), bypassing broken local DNS with zero latency.
+  3. **DNS-over-HTTPS (DoH)**: Secondary fallback querying Cloudflare (`1.1.1.1`) and Google (`8.8.8.8`) via direct IP literals without recursive DNS dependencies.
+- **Player & Downloader Integration**: Integrated into `MusicService.kt` and `DownloadUtil.kt` upstream `OkHttpDataSource` so streaming and downloading audio from `https://aac.saavncdn.com/` never encounter DNS connection blocks.
 
+### D. Multi-Tiered Duration & International Unicode Matching (`JioSaavnAudioResolver.kt`)
+- **Unicode Script Preservation**: Title normalization uses regex `[^\p{L}\p{N}\s]` instead of `[^a-z0-9]`, preserving all international alphabets (Tamil, Telugu, Hindi, Malayalam, Punjabi, Japanese, Cyrillic, accented Latin, etc.).
+- **Multi-Tier Duration Matching**: Checks strict duration compatibility ($\le 4\text{s}$) first, then relaxes up to $10\text{s}$ tolerance to accommodate YouTube Music silence paddings and intro/outro cuts without picking incorrect remixes.
+- **Queue Stream Preloading**: `MusicService.kt`'s `preloadUpcomingItems()` resolves upcoming queue items via JioSaavn ahead of time, ensuring gapless transitions into 320 kbps AAC streams.
+- **Transparent YouTube Opus Fallback**: If a song is absent from JioSaavn or network requests fail, playback falls back instantly to YouTube Opus (~160 kbps) with zero user-facing errors or interruptions.
+- **UI Quality Display**: When JioSaavn plays, the player codec badge displays `AAC • 320 kbps`; on YouTube fallback, it displays `OPUS • 160 kbps`.
 
+---
 
+## 9. Production Release Signing & Device Deployment Verification
+
+### A. Permanent Release Signing Keystore
+- **Keystore Location**: `app/keystore/release.keystore` (and GitHub Repository Secret `KEYSTORE_BASE64`).
+- **Certificate Alias**: `echorelease` | **Password**: `echopassword`
+- **Certificate Fingerprint (SHA-256)**:
+  `19:F0:02:FC:F2:4F:CA:D2:08:0B:80:46:33:EE:91:B3:69:66:9D:6E:05:97:E7:C5:87:80:5B:0A:11:89:4D:8A`
+- **Validity**: 10,000 days (until January 20, 2054).
+- Both local `./gradlew assembleUniversalGmsRelease` and CI release builds automatically bind to this identical key, ensuring permanent certificate continuity and preventing `INSTALL_FAILED_UPDATE_INCOMPATIBLE` during in-app updates.
+
+### B. Device Deployment Status
+- **Installed Package**: `echo.music.iad1tya` (Production Release Build with official signature).
+- **Uninstalled Package**: `echo.music.iad1tya.debug` (Developer builds completely removed from both devices).
+- **Device A (Phone `100.99.1.23:5555`)**: Release build installed, verified playing JioSaavn 320 kbps AAC (`c2.android.aac.decoder` allocated, 0ms fallback DNS).
+- **Device B (Tablet `100.99.1.9:5555`)**: Release build installed with identical cryptographic signature.
+
+### C. CI/CD Release Automation
+- **GitHub Actions (`build-release.yml`)**: Configured with `make_latest: "true"` on `softprops/action-gh-release@v2` so every new release tag published to `DeepBlue9789/Echo-Music` automatically receives the "Latest" badge on GitHub.
+- **In-App Updater Endpoint**: Verified pointing to `https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest`, ensuring all installed devices detect new releases automatically.
