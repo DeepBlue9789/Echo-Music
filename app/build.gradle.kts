@@ -339,6 +339,7 @@ dependencies {
     implementation(project(":echomusiccanvas"))
     implementation(project(":paxsenixlyrics"))
     implementation(project(":unison"))
+    implementation(project(":jiosaavn"))
 
 
     implementation(libs.ktor.client.core)

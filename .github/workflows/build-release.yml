@@ -121,6 +121,13 @@ jobs:
                   "Edge-anchored floating chat bubble with system cross-window background blur",
                   "Full Peer-to-Peer mesh over Tailscale VPN and Local Wi-Fi"
                 ]
+              },
+              {
+                "title": "High-Fidelity Audio Streaming",
+                "items": [
+                  "New JioSaavn 320 kbps High Quality Audio module with automatic seamless fallback to YouTube Opus",
+                  "Audio Quality selection in Settings: Opus and Jio Saavan > Opus"
+                ]
               }
             ]
           }
@@ -135,6 +142,11 @@ jobs:
           name: Echo Music ${{ env.TAG }}
           body: |
             ## Echo Music Release (${{ env.TAG }})
+            
+            ### High-Fidelity Audio Streaming
+            - **JioSaavn 320kbps High Quality Stream**: Stream pristine 320 kbps AAC/MP4 audio with zero login required.
+            - **Zero-Interruption Fallback**: Automatically falls back to YouTube Opus if a track is not matched on JioSaavn.
+            - **Quality Settings**: Choose between *Opus* and *Jio Saavan > Opus* in Player Settings and Bottom Sheet.
             
             ### Listen Together Enhancements
             - **Server-Authoritative Virtual Timeline Synchronization Engine**: Continuous timeline model ($p(t) = p_{ref} + r \cdot (t - t_{ref})$) with cooperative buffer barriers.

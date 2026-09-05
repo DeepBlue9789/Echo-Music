@@ -865,11 +865,12 @@ fun AudioQualitySelector(context: Context) {
         )
 
         val options = listOf(
-            "Opus"
+            "Opus",
+            "Jio Saavan > Opus"
         )
         val selectedIndex = when (audioQuality) {
             AudioQuality.OPUS -> 0
-            else -> 0
+            AudioQuality.JIO_SAAVN_OPUS -> 1
         }
 
         androidx.compose.foundation.layout.FlowRow(
@@ -886,6 +887,7 @@ fun AudioQualitySelector(context: Context) {
                     onCheckedChange = {
                         val newQuality = when (index) {
                             0 -> AudioQuality.OPUS
+                            1 -> AudioQuality.JIO_SAAVN_OPUS
                             else -> AudioQuality.OPUS
                         }
                         onAudioQualityChange(newQuality)

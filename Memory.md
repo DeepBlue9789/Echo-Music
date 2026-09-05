@@ -172,6 +172,8 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 | **Release Build Workflow** | `.github/workflows/build-release.yml` |
 | **Gradle Properties & Toolchain Paths** | `gradle.properties` |
 | **Lint Rules & ExtraTranslation Ignored** | `app/lint.xml` |
+| **JioSaavn Module & Stream Resolver** | `jiosaavn/src/main/kotlin/com/music/jiosaavn/JioSaavnAudioResolver.kt` |
+| **JioSaavn DES Decryptor & 320k Upgrader** | `jiosaavn/src/main/kotlin/com/music/jiosaavn/crypto/JioSaavnDecryptor.kt` |
 
 ---
 
@@ -239,5 +241,24 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - **Active Session Expiration Prevention**: Touched `ListenTogetherSessionTimestampKey` periodically during ping heartbeats so sessions $>10\text{ minutes}$ are not purged from DataStore on app recreate.
 - **Eliminated Dual-Broadcasting Conflict in P2P**: In `P2PWebSocketServer.kt`, suppressed redundant immediate `SYNC_PLAYBACK` messages when `PLAY_SCHEDULED`, `PAUSE_COMMAND`, or `SEEK_COMMAND` are broadcast, preserving the 250ms NTP execution barrier.
 - **Non-Destructive SYNC_QUEUE Updates**: Used `C.TIME_UNSET` when updating queue items without altering current playing track index to eliminate ExoPlayer audio pipeline flushes.
+ 
+---
+ 
+## 8. JioSaavn 320kbps High Fidelity Audio Architecture
+ 
+### A. Module Isolation & Upstream Merge Safety
+- **Standalone Module (`:jiosaavn`)**: Implemented as an independent Gradle library module under `jiosaavn/` with zero file overlap with upstream `EchoMusicApp/Echo-Music`. Automated upstream merges via `.github/workflows/sync-upstream.yml` will never encounter conflicts inside this module.
+- **Ktor OkHttp Engine**: Uses Ktor client with Kotlinx Serialization and OkHttp engine for high-performance direct CDN requests.
+ 
+### B. DES Decryption & 320kbps URL Elevation
+- **Cipher**: Uses DES in ECB mode with PKCS5Padding and cipher key `38346591`. Decrypts Base64-encoded `encrypted_media_url` returned by JioSaavn search API.
+- **Quality Elevation**: Upgrades the returned `_96.mp4` / `_160.mp4` bitrate token to `_320.mp4` (or `.m4a`), resolving direct Akamai/Azure CDN URLs delivering 320 kbps AAC streams.
+ 
+### C. Verification & Zero-Interruption YouTube Opus Fallback
+- **Duration Match Filter**: Verifies song duration against YouTube metadata within a $\pm 4\text{s}$ tolerance window. Prevents incorrect audio streams for remixes, live versions, or acoustic edits.
+- **Title Sanitization**: Cleans metadata strings to remove YouTube-specific suffixes (`(Official Video)`, `[Official Audio]`, `feat.`, etc.) before querying.
+- **Transparent Fallback**: If a song is absent from JioSaavn or network requests fail, playback falls back instantly to YouTube Opus (~160 kbps) with zero user-facing errors or interruptions.
+- **UI Quality Display**: When JioSaavn plays, the player codec badge dynamically displays `AAC • 320 kbps`; on YouTube fallback, it displays `OPUS • 160 kbps`.
+
 
 

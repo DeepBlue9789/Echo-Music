@@ -3002,9 +3002,76 @@ class MusicService :
                 val knownTitle = dbSong?.song?.title
                 val knownDuration = dbSong?.song?.duration?.let { if (it > 0) it * 1000L else null }
 
+                if (lockedQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS) {
+                    val songTitle = knownTitle ?: runCatching {
+                        withContext(Dispatchers.Main) {
+                            player.findNextMediaItemById(mediaId)?.metadata?.title
+                        }
+                    }.getOrNull()
+
+                    val songArtist = knownArtist ?: runCatching {
+                        withContext(Dispatchers.Main) {
+                            player.findNextMediaItemById(mediaId)?.metadata?.artists?.joinToString { it.name }
+                        }
+                    }.getOrNull()
+
+                    val songDurationSec = (dbSong?.song?.duration?.takeIf { it > 0 })
+                        ?: runCatching {
+                            withContext(Dispatchers.Main) {
+                                player.findNextMediaItemById(mediaId)?.metadata?.duration?.takeIf { it > 0 }
+                            }
+                        }.getOrNull()
+
+                    val saavnTrack = runCatching {
+                        com.music.jiosaavn.JioSaavnAudioResolver.resolveStream(
+                            title = songTitle,
+                            artist = songArtist,
+                            durationSec = songDurationSec
+                        )
+                    }.getOrNull()
+
+                    if (saavnTrack != null) {
+                        Timber.tag("MusicService").i("JioSaavn 320kbps stream resolved for $mediaId (${saavnTrack.title})")
+                        val saavnFormat = com.music.innertube.models.response.PlayerResponse.StreamingData.Format(
+                            itag = 141,
+                            url = saavnTrack.streamUrl,
+                            mimeType = saavnTrack.mimeType,
+                            bitrate = saavnTrack.bitrate,
+                            width = null,
+                            height = null,
+                            contentLength = null,
+                            quality = "AUDIO_QUALITY_HIGH",
+                            fps = null,
+                            qualityLabel = null,
+                            averageBitrate = saavnTrack.bitrate,
+                            audioQuality = "AUDIO_QUALITY_HIGH",
+                            approxDurationMs = (saavnTrack.durationSec * 1000L).toString(),
+                            audioSampleRate = 44100,
+                            audioChannels = 2,
+                            loudnessDb = null,
+                            lastModified = null,
+                            signatureCipher = null,
+                            cipher = null,
+                            audioTrack = null
+                        )
+                        return@runBlocking Result.success(
+                            YTPlayerUtils.PlaybackData(
+                                audioConfig = null,
+                                videoDetails = null,
+                                playbackTracking = null,
+                                format = saavnFormat,
+                                streamUrl = saavnTrack.streamUrl,
+                                streamExpiresInSeconds = 86400
+                            )
+                        )
+                    } else {
+                        Timber.tag("MusicService").i("JioSaavn match not found for $mediaId, falling back to YouTube Opus")
+                    }
+                }
+
                 YTPlayerUtils.playerResponseForPlayback(
                     videoId = mediaId,
-                    audioQuality = lockedQuality,
+                    audioQuality = echo.music.iad1tya.constants.AudioQuality.OPUS,
                     connectivityManager = connectivityManager
                 )
             }.getOrElse { throwable ->

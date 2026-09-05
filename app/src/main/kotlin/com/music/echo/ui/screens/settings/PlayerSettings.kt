@@ -257,15 +257,18 @@ highlightKey: String? = null) {
             },
             title = stringResource(R.string.audio_quality),
             current = audioQuality,
-            values = listOf(AudioQuality.OPUS),
+            values = listOf(AudioQuality.OPUS, AudioQuality.JIO_SAAVN_OPUS),
             valueText = {
                 when (it) {
                     AudioQuality.OPUS -> "Opus"
-                    else -> ""
+                    AudioQuality.JIO_SAAVN_OPUS -> "Jio Saavan > Opus"
                 }
             },
             valueDescription = {
-                ""
+                when (it) {
+                    AudioQuality.OPUS -> "Standard YouTube Opus stream (~128-160 kbps)"
+                    AudioQuality.JIO_SAAVN_OPUS -> "320 kbps high quality stream with fallback to Opus"
+                }
             }
         )
     }
@@ -409,7 +412,7 @@ highlightKey: String? = null) {
                         Text(
                             when (audioQuality) {
                                 AudioQuality.OPUS -> "Opus"
-                                else -> "Opus"
+                                AudioQuality.JIO_SAAVN_OPUS -> "Jio Saavan > Opus"
                             }
                         )
                     },
