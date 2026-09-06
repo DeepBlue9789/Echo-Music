@@ -130,7 +130,28 @@ android {
             keyAlias = "androiddebugkey"
             keyPassword = "android"
             storePassword = "android"
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            val debugStore = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            if (!debugStore.exists()) {
+                debugStore.parentFile?.mkdirs()
+                try {
+                    val keytoolBin = if (System.getProperty("os.name").lowercase().contains("win")) "keytool.exe" else "keytool"
+                    val javaHome = System.getProperty("java.home")
+                    val keytoolPath = file("$javaHome/bin/$keytoolBin")
+                    val keytoolExec = if (keytoolPath.exists()) keytoolPath.absolutePath else "keytool"
+                    ProcessBuilder(
+                        keytoolExec, "-genkey", "-v",
+                        "-keystore", debugStore.absolutePath,
+                        "-storepass", "android",
+                        "-alias", "androiddebugkey",
+                        "-keypass", "android",
+                        "-keyalg", "RSA",
+                        "-keysize", "2048",
+                        "-validity", "10000",
+                        "-dname", "CN=Android Debug,O=Android,C=US"
+                    ).start().waitFor()
+                } catch (_: Exception) {}
+            }
+            storeFile = debugStore
         }
     }
 

@@ -361,3 +361,19 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
   - Compiled and installed official production release build `app-universal-gms-release.apk` (`echo.music.iad1tya`) on both devices.
 - **GitHub Release Update**: Updated latest release `v1.2.4` assets on `DeepBlue9789/Echo-Music` with the newly compiled release APKs (`app-universal-gms-release.apk` and `EchoMusic-v1.2.4-universal.apk`).
 
+---
+
+## 12. CodeQL CI Pipeline Debug Keystore Resolution
+
+### A. Problem & Root Cause
+- **Failure**: GitHub Actions workflow `CodeQL` (`.github/workflows/codeql.yml`) repeatedly failed on step `Build project` during `./gradlew assembleDebug`.
+- **Root Cause**: AGP task `validateSigningArm64FossDebug` failed with `Keystore file '/home/runner/.android/debug.keystore' not found for signing config 'debug'`. In `app/build.gradle.kts`, `signingConfigs.getByName("debug")` explicitly set `storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")`. Clean CI runners (ubuntu-latest) do not have this file pre-created, causing AGP's validation task to abort the build before compilation completed.
+
+### B. Resolution
+1. **CI Workflow Provisioning**:
+   - In `.github/workflows/codeql.yml`, added a `Generate Debug Keystore` step before `Build project` to run `keytool -genkey` creating `~/.android/debug.keystore`.
+2. **Buildscript Self-Healing**:
+   - In `app/build.gradle.kts`, updated `signingConfigs.getByName("debug")` to proactively detect if `debug.keystore` is absent and auto-generate it via the running JVM's `keytool` binary before assigning `storeFile`.
+3. **Upstream Sync Protection**:
+   - Verified `.github/workflows/sync-upstream.yml` retains fork workflows (`git checkout HEAD -- .github/workflows/`) during automated upstream sync merges, ensuring CI workflow stability without merge conflicts.
+
