@@ -88,10 +88,6 @@ import echo.music.iad1tya.playback.queues.YouTubeQueue
 import echo.music.iad1tya.ui.player.MiniPlayer
 import echo.music.iad1tya.ui.theme.PlayerColorExtractor
 import echo.music.iad1tya.ui.theme.echomusicTheme
-import echo.music.iad1tya.ui.theme.DefaultThemeColor
-import echo.music.iad1tya.ui.theme.extractThemeColor
-import echo.music.iad1tya.constants.DynamicThemeKey
-import echo.music.iad1tya.constants.SelectedThemeColorKey
 import echo.music.iad1tya.constants.PureBlackKey
 import echo.music.iad1tya.utils.rememberPreference
 import echo.music.iad1tya.constants.ListenTogetherChatBlurIntensityKey
@@ -211,19 +207,14 @@ fun FloatingChatBubble(
     val currentMetadataThumbnail = currentMetadataFromConn?.thumbnailUrl ?: roomState?.currentTrack?.thumbnail
     val isPlaying = if (effectiveConnection != null) isPlayingFromConn else (roomState?.isPlaying ?: false)
 
-    // Dynamic song colors extraction matching in-app player exactly
-    val (enableDynamicTheme) = rememberPreference(DynamicThemeKey, defaultValue = true)
-    val (selectedThemeColorInt) = rememberPreference(SelectedThemeColorKey, defaultValue = DefaultThemeColor.toArgb())
-    val selectedThemeColor = remember(selectedThemeColorInt) { Color(selectedThemeColorInt) }
-
+    // Dynamic song colors extraction from album art
     val fallbackPrimary = MaterialTheme.colorScheme.primary
     val fallbackSecondary = MaterialTheme.colorScheme.tertiary
-    var activeThemeColor by remember { mutableStateOf(selectedThemeColor) }
     var songColors by remember { mutableStateOf(listOf(fallbackPrimary, fallbackSecondary)) }
 
-    LaunchedEffect(currentMetadataThumbnail, enableDynamicTheme, selectedThemeColor) {
+    LaunchedEffect(currentMetadataThumbnail) {
         val thumbUrl = currentMetadataThumbnail
-        if (!thumbUrl.isNullOrBlank() && enableDynamicTheme) {
+        if (!thumbUrl.isNullOrBlank()) {
             withContext(Dispatchers.IO) {
                 try {
                     val request = ImageRequest.Builder(context)
@@ -234,41 +225,32 @@ fun FloatingChatBubble(
                     val result = context.imageLoader.execute(request)
                     val bitmap = result.image?.toBitmap()
                     if (bitmap != null) {
-                        val extractedSeed = bitmap.extractThemeColor()
-                        activeThemeColor = extractedSeed
                         val palette = Palette.from(bitmap)
                             .maximumColorCount(8)
                             .resizeBitmapArea(100 * 100)
                             .generate()
                         val colors = PlayerColorExtractor.extractGradientColors(
                             palette = palette,
-                            fallbackColor = extractedSeed.toArgb()
+                            fallbackColor = fallbackPrimary.toArgb()
                         )
                         if (colors.isNotEmpty()) {
                             songColors = colors
                         }
-                    } else {
-                        activeThemeColor = selectedThemeColor
-                        songColors = listOf(selectedThemeColor, selectedThemeColor)
                     }
                 } catch (e: Exception) {
-                    activeThemeColor = selectedThemeColor
-                    songColors = listOf(selectedThemeColor, selectedThemeColor)
+                    // Keep existing colors
                 }
             }
-        } else {
-            activeThemeColor = selectedThemeColor
-            songColors = listOf(selectedThemeColor, selectedThemeColor)
         }
     }
 
     val dynamicPrimary by animateColorAsState(
-        targetValue = activeThemeColor,
+        targetValue = songColors.firstOrNull() ?: fallbackPrimary,
         animationSpec = tween(500),
         label = "dynamicPrimary"
     )
     val dynamicAccent by animateColorAsState(
-        targetValue = songColors.getOrNull(1) ?: dynamicPrimary,
+        targetValue = songColors.getOrNull(1) ?: fallbackSecondary,
         animationSpec = tween(500),
         label = "dynamicAccent"
     )

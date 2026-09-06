@@ -339,12 +339,13 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - **Layout Bug**: The horizontal input `Row` in `FloatingChatBubble.kt` previously failed to close prior to inserting `MiniPlayer`, crowding the send button and embedded mini-player onto the same row and squashing the message text field.
 - **Resolution**: Closed the horizontal `Row` directly after the send button container. Placed the embedded `MiniPlayer` vertically beneath the input bar inside the modal's parent `Column`. The message list retains `.weight(1f)`, the input bar spans full width, and the mini-player sits cleanly at the bottom.
 
-### B. Mini-Player Dynamic Song Color Synchronization
-- **Color Desynchronization**: In overlay mode and inside the floating chat window, `MaterialTheme` was unseeded, defaulting to Android's dynamic wallpaper palette (light periwinkle blue).
+### B. Album Art Dynamic Color Synchronization
+- **Color Desynchronization**: In overlay mode and inside the floating chat window, using `bitmap.extractThemeColor()` previously led to desaturated Material 3 tonal seeds or fallback defaults, causing the chat window and floating bubble to not follow the vibrant theme colors of the album art.
 - **Resolution**:
-  - In `FloatingChatBubble.kt`, synchronized theme extraction with `MainActivity.kt`: extracted `bitmap.extractThemeColor()` and honored `DynamicThemeKey` and `SelectedThemeColorKey` preferences.
+  - In `FloatingChatBubble.kt`, extracted vibrant song colors directly from the active album art thumbnail (`currentMetadataThumbnail`) using `PlayerColorExtractor.extractGradientColors(palette, fallbackPrimary.toArgb())`.
+  - Targeted `dynamicPrimary` to `songColors.firstOrNull() ?: fallbackPrimary` and `dynamicAccent` to `songColors.getOrNull(1) ?: fallbackSecondary`.
   - Wrapped the entire modal card in `echomusicTheme(darkTheme = true, pureBlack = pureBlack, themeColor = dynamicPrimary)`.
-  - All embedded `MiniPlayer` controls (cookie play/pause button, circular progress ring, and seek bar) now dynamically inherit the active song's vibrant album art color scheme, matching the in-app player.
+  - The circular floating bubble border, speech callout previews, chat window accents, and all embedded `MiniPlayer` controls (cookie play/pause button, circular progress ring, and seek bar) now faithfully and dynamically inherit the active song's vibrant album art color scheme, matching the in-app player.
 
 ### C. Bubble Aesthetics & Glow Elimination
 - **Solid Preview Callout Border**: Replaced linear gradient border in `SpeechBubbleCallout` with a clean `BorderStroke(1.2.dp, themeColor)`.
