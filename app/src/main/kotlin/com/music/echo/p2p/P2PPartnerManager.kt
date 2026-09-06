@@ -163,14 +163,21 @@ class P2PPartnerManager @Inject constructor(
         }
     }
 
+    var initialPlaybackStateProvider: (() -> InitialPlaybackState?)? = null
+
     /**
      * Starts the embedded local P2P WebSocket server.
      */
     @Synchronized
     fun startLocalServer(port: Int = _localPort.value): Boolean {
         if (p2pServer != null && _isServerRunning.value) {
-            Timber.tag(TAG).i("P2P Server is already running, resetting room state to fresh instance")
-            p2pServer?.resetRoomState()
+            Timber.tag(TAG).i("P2P Server is already running, re-seeding or resetting room state")
+            val initial = initialPlaybackStateProvider?.invoke()
+            if (initial?.track != null) {
+                p2pServer?.seedInitialState(initial.track, initial.isPlaying, initial.positionMs, initial.queue)
+            } else {
+                p2pServer?.resetRoomState()
+            }
             return true
         }
 
@@ -178,6 +185,10 @@ class P2PPartnerManager @Inject constructor(
             _status.value = P2PConnectionStatus.STARTING_SERVER
             val server = P2PWebSocketServer(port).apply {
                 serverDeviceName = _deviceName.value
+                val initial = initialPlaybackStateProvider?.invoke()
+                if (initial?.track != null) {
+                    seedInitialState(initial.track, initial.isPlaying, initial.positionMs, initial.queue)
+                }
                 onPeerJoinedListener = { peerName ->
                     Timber.tag(TAG).i("Peer joined server: $peerName, connecting local client if not connected")
                     val currentClientState = client.connectionState.value
@@ -306,9 +317,13 @@ class P2PPartnerManager @Inject constructor(
             val autoDiscoverable = context.dataStore.get(ListenTogetherAutoDiscoverableKey, false)
             if (autoDiscoverable) {
                 p2pServer?.resetRoomState()
+                val initial = initialPlaybackStateProvider?.invoke()
+                if (initial?.track != null) {
+                    p2pServer?.seedInitialState(initial.track, initial.isPlaying, initial.positionMs, initial.queue)
+                }
                 _status.value = P2PConnectionStatus.SERVER_RUNNING
                 discovery.startBroadcasting(_deviceName.value)
-                Timber.tag(TAG).i("Preserving standby P2P server due to auto-discoverable setting")
+                Timber.tag(TAG).i("Preserving standby P2P server due to auto-discoverable setting (seeded=${initial?.track?.title})")
             } else {
                 stopLocalServer()
                 _status.value = P2PConnectionStatus.IDLE
@@ -366,3 +381,10 @@ class P2PPartnerManager @Inject constructor(
         }
     }
 }
+
+data class InitialPlaybackState(
+    val track: TrackInfo?,
+    val isPlaying: Boolean,
+    val positionMs: Long,
+    val queue: List<TrackInfo>?
+)

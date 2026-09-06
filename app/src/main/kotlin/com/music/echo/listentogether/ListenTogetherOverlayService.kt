@@ -218,14 +218,13 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                                             params.height = WindowManager.LayoutParams.MATCH_PARENT
                                             params.flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                                                     WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
-                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                                                val isCrossBlurEnabled = try {
-                                                    wm.isCrossWindowBlurEnabled
-                                                } catch (e: Exception) { false }
-                                                if (isCrossBlurEnabled) {
-                                                    params.flags = params.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
-                                                    params.blurBehindRadius = (blurRadius * density).toInt().coerceAtLeast(1)
-                                                }
+                                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && blurRadius > 0f) {
+                                                params.flags = params.flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+                                                params.blurBehindRadius = (blurRadius * density).toInt().coerceIn(1, 150)
+                                                params.dimAmount = 0.32f
+                                            } else {
+                                                params.flags = params.flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+                                                params.dimAmount = 0.45f
                                             }
                                             params.gravity = Gravity.TOP or Gravity.START
                                             params.x = 0
@@ -240,6 +239,8 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                                                 params.flags = params.flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
                                                 params.blurBehindRadius = 0
                                             }
+                                            params.flags = params.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
+                                            params.dimAmount = 0f
                                             val isRight = savedBubbleX >= resources.displayMetrics.widthPixels / 2
                                             if (isRight) {
                                                 params.gravity = Gravity.TOP or Gravity.END

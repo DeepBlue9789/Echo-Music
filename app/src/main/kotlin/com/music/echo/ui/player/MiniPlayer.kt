@@ -204,13 +204,14 @@ fun MiniPlayer(
     positionState: MutableLongState,
     durationState: MutableLongState,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {}
+    onClick: (() -> Unit)? = null
 ) {
     val useNewMiniPlayerDesign by rememberPreference(UseNewMiniPlayerDesignKey, true)
     
     
     val (useFloatingNavBar) = rememberPreference(UseFloatingNavBarKey, defaultValue = false)
     val progressState = remember { ProgressState(positionState, durationState) }
+    val clickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
 
     if (useFloatingNavBar) {
         val glassConfig = LocalGlassEffectConfig.current
@@ -238,7 +239,7 @@ fun MiniPlayer(
             FloatingMiniPlayer(
                 isInline = false,
                 contentColor = contentColor,
-                onClick = onClick,
+                onClick = onClick ?: {},
                 modifier = Modifier
                     .fillMaxWidth()
                     .then(tabBarContentModifier)
@@ -247,10 +248,10 @@ fun MiniPlayer(
     } else if (useNewMiniPlayerDesign) {
         NewMiniPlayer(
             progressState = progressState,
-            modifier = modifier
+            modifier = modifier.then(clickModifier)
         )
     } else {
-        Box(modifier = modifier.fillMaxWidth()) {
+        Box(modifier = modifier.fillMaxWidth().then(clickModifier)) {
             LegacyMiniPlayer(
                 progressState = progressState,
                 modifier = Modifier.align(Alignment.Center)

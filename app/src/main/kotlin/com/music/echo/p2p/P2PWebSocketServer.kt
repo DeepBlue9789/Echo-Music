@@ -452,11 +452,19 @@ class P2PWebSocketServer(
             }
 
             MessageTypes.REQUEST_SYNC -> {
+                val now = System.currentTimeMillis()
+                val currentPosSec = if (virtualTimelineRate > 0.0) {
+                    (virtualTimelineRefPos + (now - virtualTimelineRefTime) / 1000.0).coerceAtLeast(0.0)
+                } else {
+                    virtualTimelineRefPos.coerceAtLeast(0.0)
+                }
+                val currentPosMs = (currentPosSec * 1000.0).toLong()
+
                 val syncStatePayload = SyncStatePayload(
                     currentTrack = _roomState.value.currentTrack,
-                    isPlaying = _roomState.value.isPlaying,
-                    position = _roomState.value.position,
-                    lastUpdate = System.currentTimeMillis(),
+                    isPlaying = virtualTimelineRate > 0.0,
+                    position = currentPosMs,
+                    lastUpdate = now,
                     queue = _roomState.value.queue,
                     stateVersion = _roomState.value.stateVersion
                 )
@@ -471,7 +479,7 @@ class P2PWebSocketServer(
                     trackId = _roomState.value.currentTrack?.id,
                     trackInfo = _roomState.value.currentTrack,
                     queue = _roomState.value.queue,
-                    serverTime = System.currentTimeMillis()
+                    serverTime = now
                 )
                 sendToPeer(conn, MessageTypes.SESSION_SNAPSHOT, snapshot)
             }

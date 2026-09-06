@@ -10,12 +10,17 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,6 +60,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,25 +85,72 @@ import echo.music.iad1tya.listentogether.RepliedMessage
 import echo.music.iad1tya.listentogether.TrackInfo
 import echo.music.iad1tya.models.toMediaMetadata
 import echo.music.iad1tya.playback.queues.YouTubeQueue
+import echo.music.iad1tya.ui.player.MiniPlayer
 import echo.music.iad1tya.ui.theme.PlayerColorExtractor
+import echo.music.iad1tya.ui.theme.echomusicTheme
+import echo.music.iad1tya.ui.theme.DefaultThemeColor
+import echo.music.iad1tya.ui.theme.extractThemeColor
+import echo.music.iad1tya.constants.DynamicThemeKey
+import echo.music.iad1tya.constants.SelectedThemeColorKey
+import echo.music.iad1tya.constants.PureBlackKey
 import echo.music.iad1tya.utils.rememberPreference
 import echo.music.iad1tya.constants.ListenTogetherChatBlurIntensityKey
 import echo.music.iad1tya.constants.ListenTogetherChatTintIntensityKey
 import echo.music.iad1tya.constants.ListenTogetherChatFontSizeKey
 import echo.music.iad1tya.constants.ListenTogetherChatFontWeightKey
+import echo.music.iad1tya.constants.ListenTogetherBubbleHaloKey
+import echo.music.iad1tya.constants.ListenTogetherChatDragToDismissKey
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.lazy.LazyItemScope
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.animation.core.FastOutSlowInEasing
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.roundToInt
+
+private data class FloatingEmojiParticle(
+    val id: Long,
+    val emoji: String,
+    val startXRatio: Float
+)
 
 private fun Color.contrastTextColor(): Color {
     return if (this.luminance() > 0.45f) Color.Black else Color.White
+}
+
+private fun lerp(start: Float, stop: Float, fraction: Float): Float =
+    start + fraction * (stop - start)
+
+private fun lerpDp(start: androidx.compose.ui.unit.Dp, stop: androidx.compose.ui.unit.Dp, fraction: Float): androidx.compose.ui.unit.Dp =
+    androidx.compose.ui.unit.Dp(start.value + fraction * (stop.value - start.value))
+
+private fun getVibrantSenderColor(username: String): Color {
+    val palette = listOf(
+        Color(0xFF4FC3F7), // Vibrant Sky Blue
+        Color(0xFF81C784), // Vibrant Mint Green
+        Color(0xFFFFB74D), // Vibrant Pastel Amber
+        Color(0xFFCE93D8), // Vibrant Soft Lavender
+        Color(0xFFFF8A80), // Vibrant Coral
+        Color(0xFF4DB6AC), // Vibrant Aqua Teal
+        Color(0xFFFFD54F)  // Vibrant Goldenrod
+    )
+    val hash = kotlin.math.abs(username.hashCode())
+    return palette[hash % palette.size]
 }
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -127,6 +180,9 @@ fun FloatingChatBubble(
     val (chatTintIntensity) = rememberPreference(ListenTogetherChatTintIntensityKey, 0.35f)
     val (chatFontSizePref) = rememberPreference(ListenTogetherChatFontSizeKey, "medium")
     val (chatFontWeightPref) = rememberPreference(ListenTogetherChatFontWeightKey, "medium")
+    val (bubbleHaloPref) = rememberPreference(ListenTogetherBubbleHaloKey, true)
+    val (chatDragToDismissPref) = rememberPreference(ListenTogetherChatDragToDismissKey, true)
+    val (pureBlack) = rememberPreference(PureBlackKey, defaultValue = false)
 
     val chatFontScale = when (chatFontSizePref) {
         "small" -> 0.88f
@@ -155,14 +211,19 @@ fun FloatingChatBubble(
     val currentMetadataThumbnail = currentMetadataFromConn?.thumbnailUrl ?: roomState?.currentTrack?.thumbnail
     val isPlaying = if (effectiveConnection != null) isPlayingFromConn else (roomState?.isPlaying ?: false)
 
-    // Dynamic song colors extraction
+    // Dynamic song colors extraction matching in-app player exactly
+    val (enableDynamicTheme) = rememberPreference(DynamicThemeKey, defaultValue = true)
+    val (selectedThemeColorInt) = rememberPreference(SelectedThemeColorKey, defaultValue = DefaultThemeColor.toArgb())
+    val selectedThemeColor = remember(selectedThemeColorInt) { Color(selectedThemeColorInt) }
+
     val fallbackPrimary = MaterialTheme.colorScheme.primary
     val fallbackSecondary = MaterialTheme.colorScheme.tertiary
+    var activeThemeColor by remember { mutableStateOf(selectedThemeColor) }
     var songColors by remember { mutableStateOf(listOf(fallbackPrimary, fallbackSecondary)) }
 
-    LaunchedEffect(currentMetadataThumbnail) {
+    LaunchedEffect(currentMetadataThumbnail, enableDynamicTheme, selectedThemeColor) {
         val thumbUrl = currentMetadataThumbnail
-        if (!thumbUrl.isNullOrBlank()) {
+        if (!thumbUrl.isNullOrBlank() && enableDynamicTheme) {
             withContext(Dispatchers.IO) {
                 try {
                     val request = ImageRequest.Builder(context)
@@ -173,34 +234,41 @@ fun FloatingChatBubble(
                     val result = context.imageLoader.execute(request)
                     val bitmap = result.image?.toBitmap()
                     if (bitmap != null) {
+                        val extractedSeed = bitmap.extractThemeColor()
+                        activeThemeColor = extractedSeed
                         val palette = Palette.from(bitmap)
                             .maximumColorCount(8)
                             .resizeBitmapArea(100 * 100)
                             .generate()
                         val colors = PlayerColorExtractor.extractGradientColors(
                             palette = palette,
-                            fallbackColor = fallbackPrimary.toArgb()
+                            fallbackColor = extractedSeed.toArgb()
                         )
                         if (colors.isNotEmpty()) {
                             songColors = colors
                         }
+                    } else {
+                        activeThemeColor = selectedThemeColor
+                        songColors = listOf(selectedThemeColor, selectedThemeColor)
                     }
                 } catch (e: Exception) {
-                    // Fallback to default
+                    activeThemeColor = selectedThemeColor
+                    songColors = listOf(selectedThemeColor, selectedThemeColor)
                 }
             }
         } else {
-            songColors = listOf(fallbackPrimary, fallbackSecondary)
+            activeThemeColor = selectedThemeColor
+            songColors = listOf(selectedThemeColor, selectedThemeColor)
         }
     }
 
     val dynamicPrimary by animateColorAsState(
-        targetValue = songColors.firstOrNull() ?: fallbackPrimary,
+        targetValue = activeThemeColor,
         animationSpec = tween(500),
         label = "dynamicPrimary"
     )
     val dynamicAccent by animateColorAsState(
-        targetValue = songColors.getOrNull(1) ?: fallbackSecondary,
+        targetValue = songColors.getOrNull(1) ?: dynamicPrimary,
         animationSpec = tween(500),
         label = "dynamicAccent"
     )
@@ -229,7 +297,12 @@ fun FloatingChatBubble(
     var isDismissed by rememberSaveable { mutableStateOf(false) }
     var isDragging by remember { mutableStateOf(false) }
 
-    // Premium spring drag scale — bubble scales to 0.9 while being dragged, bounces back on release
+    // Dynamic Tilt & Collision Squash-and-Stretch physics
+    val dragTilt = remember { Animatable(0f) }
+    val squashScaleX = remember { Animatable(1f) }
+    val squashScaleY = remember { Animatable(1f) }
+
+    // Premium spring drag scale — bubble scales to 0.88 while being dragged, bounces back on release
     val dragScale by animateFloatAsState(
         targetValue = if (isDragging) 0.88f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
@@ -237,7 +310,7 @@ fun FloatingChatBubble(
     )
 
     // Animated equalizer for playing indicator (3 bars)
-    val infiniteTransition = rememberInfiniteTransition(label = "equalizer")
+    val infiniteTransition = rememberInfiniteTransition(label = "bubbleAnimations")
     val bar1Height by infiniteTransition.animateFloat(
         initialValue = 3f, targetValue = 12f,
         animationSpec = infiniteRepeatable(tween(320, easing = LinearEasing), RepeatMode.Reverse),
@@ -254,6 +327,20 @@ fun FloatingChatBubble(
         label = "bar3"
     )
 
+    // Audio breathing halo
+    val audioHaloScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "audioHaloScale"
+    )
+    val audioHaloAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.22f,
+        targetValue = 0.65f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        label = "audioHaloAlpha"
+    )
+
     // Red badge count strictly for user messages
     val userMessages = remember(messages) { messages.filter { it.userId != "SYSTEM" && it.userId != currentUserId } }
     var lastReadUserMessageCount by rememberSaveable { mutableIntStateOf(0) }
@@ -266,11 +353,121 @@ fun FloatingChatBubble(
     }
     val unreadCount = unreadUserMessages.size
 
-    // Speech bubble callout on incoming message (no card-morph)
+    val coroutineScope = rememberCoroutineScope()
+
+    val positionState = remember { mutableLongStateOf(0L) }
+    val durationState = remember { mutableLongStateOf(1L) }
+
+    LaunchedEffect(isPlaying, isExpanded) {
+        if (isPlaying && isExpanded) {
+            while (isActive) {
+                val player = effectiveConnection?.player
+                if (player != null) {
+                    positionState.longValue = player.currentPosition
+                    durationState.longValue = player.duration.coerceAtLeast(1L)
+                }
+                delay(200)
+            }
+        } else {
+            val player = effectiveConnection?.player
+            if (player != null) {
+                positionState.longValue = player.currentPosition
+                durationState.longValue = player.duration.coerceAtLeast(1L)
+            }
+        }
+    }
+
+    val modalTransition = updateTransition(targetState = isExpanded, label = "ChatModalTransition")
+    val showModal = isExpanded || modalTransition.currentState || modalTransition.targetState
+
+    // Seamless Material 3 animation specs: duration, easing and timing perfectly synchronized
+    val cardAlpha by modalTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = 280, easing = LinearOutSlowInEasing)
+            } else {
+                tween(durationMillis = 180, easing = FastOutLinearInEasing)
+            }
+        },
+        label = "cardAlpha"
+    ) { expanded -> if (expanded) 1f else 0f }
+
+    val cardScale by modalTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = 320, easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f))
+            } else {
+                tween(durationMillis = 240, easing = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f))
+            }
+        },
+        label = "cardScale"
+    ) { expanded -> if (expanded) 1f else 0.82f }
+
+    val cardOffsetProgress by modalTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = 320, easing = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f))
+            } else {
+                tween(durationMillis = 240, easing = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f))
+            }
+        },
+        label = "cardOffset"
+    ) { expanded -> if (expanded) 0f else 1f }
+
+    val scrimAlpha by modalTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = 300, easing = FastOutSlowInEasing)
+            } else {
+                tween(durationMillis = 220, easing = FastOutLinearInEasing)
+            }
+        },
+        label = "scrimAlpha"
+    ) { expanded -> if (expanded) 0.45f else 0f }
+
+    val bubbleAlpha by modalTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = 130, easing = FastOutLinearInEasing)
+            } else {
+                tween(durationMillis = 180, delayMillis = 60, easing = LinearOutSlowInEasing)
+            }
+        },
+        label = "bubbleAlpha"
+    ) { expanded -> if (expanded) 0f else 1f }
+
+    val bubbleScale by modalTransition.animateFloat(
+        transitionSpec = {
+            if (targetState) {
+                tween(durationMillis = 130, easing = FastOutLinearInEasing)
+            } else {
+                tween(durationMillis = 180, delayMillis = 60, easing = LinearOutSlowInEasing)
+            }
+        },
+        label = "bubbleScale"
+    ) { expanded -> if (expanded) 0.80f else 1f }
+
+    LaunchedEffect(modalTransition.currentState, modalTransition.targetState) {
+        if (modalTransition.targetState) {
+            onExpandChanged?.invoke(true, chatBlurIntensity)
+        } else if (!modalTransition.currentState && !modalTransition.targetState) {
+            onExpandChanged?.invoke(false, 0f)
+        }
+    }
+
+    fun closeChatModal() {
+        if (forceExpanded) {
+            onDismiss?.invoke()
+            return
+        }
+        if (!isExpanded) return
+        isExpanded = false
+        lastReadUserMessageCount = userMessages.size
+    }
+
+    // Speech bubble callout
     var isCalloutShowing by remember { mutableStateOf(false) }
     var calloutTimerJob by remember { mutableStateOf<Job?>(null) }
-
-    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(messages.size) {
         val lastMsg = messages.lastOrNull()
@@ -280,7 +477,7 @@ fun FloatingChatBubble(
                 isCalloutShowing = true
                 calloutTimerJob?.cancel()
                 calloutTimerJob = coroutineScope.launch {
-                    delay(3000)
+                    delay(3800)
                     isCalloutShowing = false
                 }
             }
@@ -291,13 +488,29 @@ fun FloatingChatBubble(
         onCalloutVisibilityChanged?.invoke(isCalloutShowing && unreadUserMessages.isNotEmpty())
     }
 
-    if (isDismissed && !isExpanded) return
+    if (isDismissed && !showModal) return
 
     val currentBubbleX = if (isOverlayMode) (bubbleAnchorPosition?.first ?: rightDockX) else offsetX.value
     val isOnRightSide = currentBubbleX > (screenWidthPx / 2)
 
+    // Bottom Dismiss Target Zone coordinates & magnetic snapping calculations
+    val bubbleDiameterPx = with(density) { bubbleDiameter.toPx() }
+    val dismissTargetCenterX = screenWidthPx / 2f
+    val dismissTargetCenterY = screenHeightPx - with(density) { 70.dp.toPx() }
+    val currentBubbleCenterX = offsetX.value + (bubbleDiameterPx / 2f)
+    val currentBubbleCenterY = offsetY.value + (bubbleDiameterPx / 2f)
+    val distToDismiss = hypot(currentBubbleCenterX - dismissTargetCenterX, currentBubbleCenterY - dismissTargetCenterY)
+    val isNearDismiss = distToDismiss < with(density) { 130.dp.toPx() }
+    val isInsideDismiss = distToDismiss < with(density) { 65.dp.toPx() }
+
+    val dismissScale by animateFloatAsState(
+        targetValue = if (isInsideDismiss) 1.35f else if (isNearDismiss) 1.15f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+        label = "dismissScale"
+    )
+
     Box(
-        modifier = if (isOverlayMode && !isExpanded) Modifier.wrapContentSize() else modifier.fillMaxSize()
+        modifier = if (isOverlayMode && !showModal) Modifier.wrapContentSize() else modifier.fillMaxSize()
     ) {
         // Bottom Dismiss Target Zone while dragging (in-app only)
         if (!isOverlayMode) {
@@ -311,24 +524,36 @@ fun FloatingChatBubble(
             ) {
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
-                    shadowElevation = 12.dp,
-                    modifier = Modifier.size(68.dp)
+                    color = if (isInsideDismiss) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.95f),
+                    shadowElevation = if (isInsideDismiss) 18.dp else 12.dp,
+                    modifier = Modifier
+                        .size(68.dp)
+                        .graphicsLayer {
+                            scaleX = dismissScale
+                            scaleY = dismissScale
+                        }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             painter = painterResource(R.drawable.close),
                             contentDescription = "Dismiss bubble",
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(30.dp)
+                            tint = if (isInsideDismiss) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.size(if (isInsideDismiss) 34.dp else 30.dp)
                         )
                     }
                 }
             }
-        }        // Draggable Floating Bubble & Speech Callout
-        if (!isExpanded) {
+        }
+
+        // Draggable Floating Bubble
+        if (bubbleAlpha > 0.001f && (!isDismissed || forceExpanded)) {
             Box(
                 modifier = Modifier
+                    .graphicsLayer {
+                        alpha = bubbleAlpha
+                        scaleX = bubbleScale
+                        scaleY = bubbleScale
+                    }
                     .then(
                         if (isOverlayMode) {
                             Modifier.wrapContentSize()
@@ -357,58 +582,87 @@ fun FloatingChatBubble(
                                 onDragStart = { isDragging = true },
                                 onDragEnd = {
                                     isDragging = false
+                                    coroutineScope.launch {
+                                        dragTilt.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
+                                    }
                                     onOverlayDragEnd?.invoke()
                                 },
-                                onDragCancel = { isDragging = false },
+                                onDragCancel = {
+                                    isDragging = false
+                                    coroutineScope.launch { dragTilt.animateTo(0f) }
+                                },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
+                                    coroutineScope.launch {
+                                        val tiltTarget = (dragAmount.x * 0.45f).coerceIn(-18f, 18f)
+                                        dragTilt.snapTo(tiltTarget)
+                                    }
                                     onOverlayDrag?.invoke(dragAmount.x, dragAmount.y)
                                 }
                             )
                         } else {
                             detectDragGestures(
-                                onDragStart = { isDragging = true },
+                                onDragStart = {
+                                    isDragging = true
+                                    isCalloutShowing = false
+                                },
                                 onDragEnd = {
                                     isDragging = false
                                     coroutineScope.launch {
-                                        if (offsetY.value > screenHeightPx - with(density) { 150.dp.toPx() } &&
-                                            offsetX.value > screenWidthPx * 0.25f &&
-                                            offsetX.value < screenWidthPx * 0.75f
-                                        ) {
+                                        dragTilt.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium))
+                                        if (isInsideDismiss) {
+                                            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                                             isDismissed = true
+                                            Toast.makeText(context, "Chat bubble dismissed", Toast.LENGTH_SHORT).show()
                                         } else {
                                             val snapTargetX = if (offsetX.value < screenWidthPx / 2) leftDockX else rightDockX
                                             offsetX.animateTo(
                                                 snapTargetX,
                                                 spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)
                                             )
+                                            // Edge collision squash and stretch
+                                            squashScaleX.snapTo(0.84f)
+                                            squashScaleY.snapTo(1.15f)
+                                            launch { squashScaleX.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) }
+                                            launch { squashScaleY.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow)) }
                                         }
                                     }
                                 },
-                                onDragCancel = { isDragging = false },
+                                onDragCancel = {
+                                    isDragging = false
+                                    coroutineScope.launch { dragTilt.animateTo(0f) }
+                                },
                                 onDrag = { change, dragAmount ->
                                     change.consume()
                                     coroutineScope.launch {
-                                        offsetX.snapTo((offsetX.value + dragAmount.x).coerceIn(leftDockX, rightDockX))
-                                        offsetY.snapTo((offsetY.value + dragAmount.y).coerceIn(with(density) { 50.dp.toPx() }, screenHeightPx - with(density) { 100.dp.toPx() }))
+                                        val tiltTarget = (dragAmount.x * 0.45f).coerceIn(-18f, 18f)
+                                        dragTilt.snapTo(tiltTarget)
+                                        // Magnetic pull towards dismiss target when nearby
+                                        var targetX = offsetX.value + dragAmount.x
+                                        var targetY = offsetY.value + dragAmount.y
+                                        if (isNearDismiss && !isInsideDismiss) {
+                                            val pullFactor = 0.25f
+                                            targetX += (dismissTargetCenterX - currentBubbleCenterX) * pullFactor
+                                            targetY += (dismissTargetCenterY - currentBubbleCenterY) * pullFactor
+                                        }
+                                        offsetX.snapTo(targetX.coerceIn(leftDockX, rightDockX))
+                                        offsetY.snapTo(targetY.coerceIn(with(density) { 50.dp.toPx() }, screenHeightPx - with(density) { 60.dp.toPx() }))
                                     }
                                 }
                             )
                         }
                     }
             ) {
-                // Layout: Speech Callout balloon + Circular Floating Bubble anchored securely
-                Box(
+                Row(
                     modifier = Modifier.wrapContentSize(),
-                    contentAlignment = if (isOnRightSide) Alignment.CenterEnd else Alignment.CenterStart
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (isOnRightSide) {
-                        // When docked right, speech callout pops out to the LEFT of the bubble
                         AnimatedVisibility(
                             visible = isCalloutShowing && unreadUserMessages.isNotEmpty(),
-                            enter = fadeIn(spring()) + scaleIn(initialScale = 0.4f, transformOrigin = TransformOrigin(1f, 0.5f)),
-                            exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.4f, transformOrigin = TransformOrigin(1f, 0.5f)),
-                            modifier = Modifier.padding(end = bubbleDiameter + 8.dp)
+                            enter = fadeIn(tween(200)) + expandHorizontally(tween(200), expandFrom = Alignment.End),
+                            exit = fadeOut(tween(150)) + shrinkHorizontally(tween(150), shrinkTowards = Alignment.End)
                         ) {
                             SpeechBubbleCallout(
                                 unreadMessages = unreadUserMessages,
@@ -416,9 +670,10 @@ fun FloatingChatBubble(
                                 themeColor = dynamicPrimary,
                                 fontScale = chatFontScale,
                                 fontWeight = chatFontWeight,
+                                onSwipeDismiss = { isCalloutShowing = false },
                                 onClick = {
-                                    isExpanded = true
                                     onExpandChanged?.invoke(true, chatBlurIntensity)
+                                    isExpanded = true
                                     isCalloutShowing = false
                                     lastReadUserMessageCount = userMessages.size
                                 }
@@ -427,6 +682,12 @@ fun FloatingChatBubble(
                         CircularFloatingBubble(
                             bubbleDiameter = bubbleDiameter,
                             dragScale = dragScale,
+                            dragTilt = dragTilt.value,
+                            squashScaleX = squashScaleX.value,
+                            squashScaleY = squashScaleY.value,
+                            audioHaloScale = audioHaloScale,
+                            audioHaloAlpha = audioHaloAlpha,
+                            bubbleHaloPref = bubbleHaloPref,
                             isDragging = isDragging,
                             dynamicPrimary = dynamicPrimary,
                             dynamicAccent = dynamicAccent,
@@ -437,17 +698,22 @@ fun FloatingChatBubble(
                             isOnRightSide = true,
                             barHeights = listOf(bar1Height, bar2Height, bar3Height),
                             onClick = {
-                                isExpanded = true
                                 onExpandChanged?.invoke(true, chatBlurIntensity)
+                                isExpanded = true
                                 isCalloutShowing = false
                                 lastReadUserMessageCount = userMessages.size
                             }
                         )
                     } else {
-                        // When docked left, speech callout pops out to the RIGHT of the bubble
                         CircularFloatingBubble(
                             bubbleDiameter = bubbleDiameter,
                             dragScale = dragScale,
+                            dragTilt = dragTilt.value,
+                            squashScaleX = squashScaleX.value,
+                            squashScaleY = squashScaleY.value,
+                            audioHaloScale = audioHaloScale,
+                            audioHaloAlpha = audioHaloAlpha,
+                            bubbleHaloPref = bubbleHaloPref,
                             isDragging = isDragging,
                             dynamicPrimary = dynamicPrimary,
                             dynamicAccent = dynamicAccent,
@@ -458,17 +724,16 @@ fun FloatingChatBubble(
                             isOnRightSide = false,
                             barHeights = listOf(bar1Height, bar2Height, bar3Height),
                             onClick = {
-                                isExpanded = true
                                 onExpandChanged?.invoke(true, chatBlurIntensity)
+                                isExpanded = true
                                 isCalloutShowing = false
                                 lastReadUserMessageCount = userMessages.size
                             }
                         )
                         AnimatedVisibility(
                             visible = isCalloutShowing && unreadUserMessages.isNotEmpty(),
-                            enter = fadeIn(spring()) + scaleIn(initialScale = 0.4f, transformOrigin = TransformOrigin(0f, 0.5f)),
-                            exit = fadeOut(tween(150)) + scaleOut(targetScale = 0.4f, transformOrigin = TransformOrigin(0f, 0.5f)),
-                            modifier = Modifier.padding(start = bubbleDiameter + 8.dp)
+                            enter = fadeIn(tween(200)) + expandHorizontally(tween(200), expandFrom = Alignment.Start),
+                            exit = fadeOut(tween(150)) + shrinkHorizontally(tween(150), shrinkTowards = Alignment.Start)
                         ) {
                             SpeechBubbleCallout(
                                 unreadMessages = unreadUserMessages,
@@ -476,9 +741,10 @@ fun FloatingChatBubble(
                                 themeColor = dynamicPrimary,
                                 fontScale = chatFontScale,
                                 fontWeight = chatFontWeight,
+                                onSwipeDismiss = { isCalloutShowing = false },
                                 onClick = {
-                                    isExpanded = true
                                     onExpandChanged?.invoke(true, chatBlurIntensity)
+                                    isExpanded = true
                                     isCalloutShowing = false
                                     lastReadUserMessageCount = userMessages.size
                                 }
@@ -488,54 +754,54 @@ fun FloatingChatBubble(
                 }
             }
         }
-    }
 
-    // Expanded Dynamic Themed Chat Modal — smooth fluid transition from bubble anchor
-    val anchorX = bubbleAnchorPosition?.first ?: offsetX.value
-    val anchorY = bubbleAnchorPosition?.second ?: offsetY.value
-    val pivotX = (anchorX / screenWidthPx).coerceIn(0.08f, 0.92f)
-    val pivotY = (anchorY / screenHeightPx).coerceIn(0.08f, 0.92f)
-    val transformOrigin = TransformOrigin(pivotX, pivotY)
+    // Expanded Dynamic Themed Chat Modal — synchronized movement, fade, and scale from bubble anchor
+    val modalDragOffsetY = remember { Animatable(0f) }
 
-    AnimatedVisibility(
-        visible = isExpanded,
-        enter = fadeIn(tween(220)) +
-                scaleIn(
-                    initialScale = 0.85f,
-                    transformOrigin = transformOrigin,
-                    animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMedium)
-                ),
-        exit = fadeOut(tween(160)) +
-               scaleOut(
-                   targetScale = 0.88f,
-                   transformOrigin = transformOrigin,
-                   animationSpec = tween(160)
-               )
-    ) {
+    if (showModal) {
+        val anchorX = bubbleAnchorPosition?.first ?: offsetX.value
+        val anchorY = bubbleAnchorPosition?.second ?: offsetY.value
+        val bubbleCenterX = anchorX + bubbleDiameterPx / 2f
+        val bubbleCenterY = anchorY + bubbleDiameterPx / 2f
+        val screenCenterX = screenWidthPx / 2f
+        val screenCenterY = screenHeightPx / 2f
+
+        val deltaX = bubbleCenterX - screenCenterX
+        val deltaY = bubbleCenterY - screenCenterY
+        val targetTranslationX = deltaX * 0.40f * cardOffsetProgress
+        val targetTranslationY = deltaY * 0.40f * cardOffsetProgress
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(if (isOverlayMode) Color.Transparent else Color.Black.copy(alpha = 0.38f))
+                .background(if (isOverlayMode) Color.Transparent else Color.Black.copy(alpha = scrimAlpha))
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) {
-                    if (forceExpanded) {
-                        onDismiss?.invoke()
-                    } else {
-                        isExpanded = false
-                        onExpandChanged?.invoke(false, 0f)
-                        lastReadUserMessageCount = userMessages.size
-                    }
+                    closeChatModal()
                 }
                 .imePadding()
                 .padding(horizontal = 12.dp, vertical = 18.dp),
             contentAlignment = Alignment.Center
         ) {
-            Surface(
+            echomusicTheme(
+                darkTheme = true,
+                pureBlack = pureBlack,
+                themeColor = dynamicPrimary,
+            ) {
+                Surface(
                 modifier = Modifier
                     .fillMaxWidth()
                     .fillMaxHeight(0.92f)
+                    .graphicsLayer {
+                        val dragProg = (modalDragOffsetY.value / 1000f).coerceIn(0f, 0.15f)
+                        alpha = cardAlpha
+                        scaleX = cardScale * (1f - dragProg)
+                        scaleY = cardScale * (1f - dragProg)
+                        translationX = targetTranslationX
+                        translationY = targetTranslationY + modalDragOffsetY.value
+                    }
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -548,8 +814,8 @@ fun FloatingChatBubble(
                         width = 1.5.dp,
                         brush = Brush.linearGradient(
                             listOf(
+                                Color.White.copy(alpha = 0.55f),
                                 dynamicPrimary.copy(alpha = 0.85f),
-                                Color.White.copy(alpha = 0.45f),
                                 dynamicAccent.copy(alpha = 0.65f)
                             )
                         ),
@@ -559,6 +825,19 @@ fun FloatingChatBubble(
                 color = MaterialTheme.colorScheme.surface.copy(alpha = chatTintIntensity.coerceIn(0.65f, 0.96f))
             ) {
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // Deep-blurred album artwork layer for genuine frosted glass backdrop
+                    if (!currentMetadataThumbnail.isNullOrBlank()) {
+                        AsyncImage(
+                            model = currentMetadataThumbnail,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .blur((chatBlurIntensity.coerceIn(14f, 50f)).dp)
+                                .alpha(0.38f)
+                        )
+                    }
+
                     // Ambient Frosted Glass illumination layer
                     Box(
                         modifier = Modifier
@@ -566,8 +845,8 @@ fun FloatingChatBubble(
                             .background(
                                 Brush.radialGradient(
                                     colors = listOf(
-                                        dynamicPrimary.copy(alpha = (chatBlurIntensity / 30f) * 0.22f),
-                                        dynamicAccent.copy(alpha = (chatBlurIntensity / 30f) * 0.12f),
+                                        dynamicPrimary.copy(alpha = (chatBlurIntensity / 30f) * 0.25f),
+                                        dynamicAccent.copy(alpha = (chatBlurIntensity / 30f) * 0.15f),
                                         Color.Transparent
                                     ),
                                     radius = 1100f
@@ -580,9 +859,9 @@ fun FloatingChatBubble(
                             .background(
                                 Brush.verticalGradient(
                                     colors = listOf(
-                                        Color.White.copy(alpha = 0.08f),
+                                        Color.White.copy(alpha = 0.09f),
                                         Color.Transparent,
-                                        Color.Black.copy(alpha = 0.14f)
+                                        Color.Black.copy(alpha = 0.16f)
                                     )
                                 )
                             )
@@ -590,120 +869,172 @@ fun FloatingChatBubble(
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                    // Header with Gear Settings and Disconnect buttons
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        dynamicPrimary.copy(alpha = 0.35f),
-                                        dynamicAccent.copy(alpha = 0.2f)
+                        // Ultra-Compact Modern Glass Header with iOS Drag Handle & Drag-to-Dismiss
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            dynamicPrimary.copy(alpha = 0.28f),
+                                            dynamicAccent.copy(alpha = 0.16f)
+                                        )
                                     )
                                 )
-                            )
-                            .padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            modifier = Modifier.weight(1f)
+                                .pointerInput(chatDragToDismissPref) {
+                                    if (chatDragToDismissPref) {
+                                        detectVerticalDragGestures(
+                                            onDragStart = { },
+                                            onDragEnd = {
+                                                coroutineScope.launch {
+                                                    if (modalDragOffsetY.value > with(density) { 95.dp.toPx() }) {
+                                                        closeChatModal()
+                                                        modalDragOffsetY.snapTo(0f)
+                                                    } else {
+                                                        modalDragOffsetY.animateTo(
+                                                            0f,
+                                                            spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            onDragCancel = {
+                                                coroutineScope.launch { modalDragOffsetY.animateTo(0f) }
+                                            },
+                                            onVerticalDrag = { change, dragAmount ->
+                                                change.consume()
+                                                coroutineScope.launch {
+                                                    val raw = modalDragOffsetY.value + dragAmount
+                                                    val factor = if (raw > with(density) { 70.dp.toPx() }) 0.42f else 1f
+                                                    modalDragOffsetY.snapTo((modalDragOffsetY.value + dragAmount * factor).coerceAtLeast(0f))
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                                .padding(top = 8.dp, bottom = 8.dp, start = 14.dp, end = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
+                            // Pill Drag Handle
                             Box(
                                 modifier = Modifier
-                                    .size(38.dp)
+                                    .width(36.dp)
+                                    .height(4.dp)
                                     .clip(CircleShape)
-                                    .background(dynamicPrimary),
-                                contentAlignment = Alignment.Center
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.32f))
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.chat_msg),
-                                    contentDescription = null,
-                                    tint = onDynamicPrimary,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = "Listen Together Chat",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Swipe left to quote • Long press send to search",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.9f),
-                                    fontWeight = FontWeight.Medium
-                                )
-                            }
-                        }
+                                // Room badge pill
+                                Surface(
+                                    shape = CircleShape,
+                                    color = dynamicPrimary.copy(alpha = 0.18f),
+                                    border = BorderStroke(1.dp, dynamicPrimary.copy(alpha = 0.35f))
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFF4CAF50))
+                                        )
+                                        Text(
+                                            text = roomState?.roomCode?.let { "#$it" } ?: "Live Chat",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                }
 
-                        // Actions: Settings, Disconnect, Close
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
-                                onClick = {
-                                    isExpanded = false
-                                    onExpandChanged?.invoke(false, 0f)
-                                    if (navController != null) {
-                                        navController.navigate("settings/integrations/listen_together")
-                                    } else {
-                                        val intent = Intent(context, MainActivity::class.java).apply {
-                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                            putExtra("EXTRA_OPEN_LISTEN_TOGETHER_SETTINGS", true)
+                                // Compact Actions: Settings, Disconnect, Close
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                        modifier = Modifier.size(32.dp),
+                                        onClick = {
+                                            closeChatModal()
+                                            if (navController != null) {
+                                                navController.navigate("settings/integrations/listen_together")
+                                            } else {
+                                                val intent = Intent(context, MainActivity::class.java).apply {
+                                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                                                    putExtra("EXTRA_OPEN_LISTEN_TOGETHER_SETTINGS", true)
+                                                }
+                                                context.startActivity(intent)
+                                            }
                                         }
-                                        context.startActivity(intent)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.settings),
+                                                contentDescription = "Listen Together Settings",
+                                                tint = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(32.dp),
+                                        onClick = {
+                                            closeChatModal()
+                                            manager.leaveRoom()
+                                            Toast.makeText(context, "Disconnected from session", Toast.LENGTH_SHORT).show()
+                                        }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.logout),
+                                                contentDescription = "Disconnect",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                                        modifier = Modifier.size(32.dp),
+                                        onClick = {
+                                            closeChatModal()
+                                        }
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.close),
+                                                contentDescription = "Close",
+                                                tint = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
                                     }
                                 }
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.settings),
-                                    contentDescription = "Listen Together Settings",
-                                    tint = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    isExpanded = false
-                                    onExpandChanged?.invoke(false, 0f)
-                                    manager.leaveRoom()
-                                    Toast.makeText(context, "Disconnected from session", Toast.LENGTH_SHORT).show()
-                                }
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.logout),
-                                    contentDescription = "Disconnect",
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            }
-
-                            IconButton(
-                                onClick = {
-                                    if (forceExpanded) {
-                                        onDismiss?.invoke()
-                                    } else {
-                                        isExpanded = false
-                                        onExpandChanged?.invoke(false, 0f)
-                                        lastReadUserMessageCount = userMessages.size
-                                    }
-                                }
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.close),
-                                    contentDescription = "Close",
-                                    tint = MaterialTheme.colorScheme.onSurface
-                                )
                             }
                         }
-                    }
+
 
                     // Messages List (Scrollable)
                     val listState = rememberLazyListState()
                     var replyingTo by remember { mutableStateOf<ChatMessagePayload?>(null) }
                     var messageInput by remember { mutableStateOf("") }
+                    var floatingEmojis by remember { mutableStateOf<List<FloatingEmojiParticle>>(emptyList()) }
+                    val sendHoldProgress = remember { Animatable(0f) }
 
                     // In-chat Song Search mode triggered by long-pressing send button
                     var isSearchMode by rememberSaveable { mutableStateOf(false) }
@@ -758,69 +1089,115 @@ fun FloatingChatBubble(
                         }
                     }
 
-                    LazyColumn(
-                        state = listState,
+                    Box(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp),
-                        contentPadding = PaddingValues(vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        if (messages.isEmpty()) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(32.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 12.dp),
+                            contentPadding = PaddingValues(vertical = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (messages.isEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(32.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "No messages yet. Send a message, quote songs, or hold send to search!",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            itemsIndexed(messages, key = { _, it -> "${it.userId}_${it.timestamp}_${it.message.hashCode()}" }) { idx, msg ->
+                                val prevMsg = messages.getOrNull(idx - 1)
+                                val nextMsg = messages.getOrNull(idx + 1)
+                                val isSong = msg.trackInfo != null || msg.userId == "SYSTEM" || msg.message.startsWith("🎵")
+                                val prevIsSong = prevMsg != null && (prevMsg.trackInfo != null || prevMsg.userId == "SYSTEM" || prevMsg.message.startsWith("🎵"))
+                                val nextIsSong = nextMsg != null && (nextMsg.trackInfo != null || nextMsg.userId == "SYSTEM" || nextMsg.message.startsWith("🎵"))
+
+                                val isPrevSame = prevMsg != null && prevMsg.userId == msg.userId && !isSong && !prevIsSong && (msg.timestamp - prevMsg.timestamp) < 120_000L
+                                val isNextSame = nextMsg != null && nextMsg.userId == msg.userId && !isSong && !nextIsSong && (nextMsg.timestamp - msg.timestamp) < 120_000L
+                                val showSenderName = !isPrevSame
+
+                                SwipeableMessageItem(
+                                    message = msg,
+                                    isMe = msg.userId == currentUserId,
+                                    themeColor = dynamicPrimary,
+                                    showSenderName = showSenderName,
+                                    isPrevSame = isPrevSame,
+                                    isNextSame = isNextSame,
+                                    onQuote = { quotedMsg ->
+                                        val quoteIsSong = quotedMsg.trackInfo != null || quotedMsg.userId == "SYSTEM" || quotedMsg.message.startsWith("🎵")
+                                        val title = quotedMsg.trackInfo?.title ?: quotedMsg.message.removePrefix("🎵 Now Playing: ").removePrefix("🎵 ").substringBefore(" - ")
+                                        val artist = quotedMsg.trackInfo?.artist ?: quotedMsg.message.substringAfter(" - ", "Echo Music")
+                                        val thumb = quotedMsg.trackInfo?.thumbnail ?: quotedMsg.replyTo?.thumbnail ?: (if (quoteIsSong) (currentMetadataThumbnail ?: roomState?.currentTrack?.thumbnail) else null)
+
+                                        val quotePayload = if (quoteIsSong) {
+                                            quotedMsg.copy(
+                                                username = "🎵 $title",
+                                                message = "$title - $artist",
+                                                trackInfo = quotedMsg.trackInfo ?: TrackInfo(
+                                                    id = roomState?.currentTrack?.id ?: "current",
+                                                    title = title,
+                                                    artist = artist,
+                                                    duration = 0L,
+                                                    thumbnail = thumb
+                                                )
+                                            )
+                                        } else {
+                                            quotedMsg
+                                        }
+                                        replyingTo = quotePayload
+                                        view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                                    }
+                                )
+                            }
+                        }
+
+                        // Floating Tapback Emoji Particles overlay
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.BottomCenter)
+                                .height(130.dp),
+                            contentAlignment = Alignment.BottomCenter
+                        ) {
+                            floatingEmojis.forEach { particle ->
+                                key(particle.id) {
+                                    val particleProgress = remember { Animatable(0f) }
+                                    LaunchedEffect(particle.id) {
+                                        particleProgress.animateTo(1f, tween(950, easing = FastOutSlowInEasing))
+                                    }
                                     Text(
-                                        text = "No messages yet. Send a message, quote songs, or long press send to search!",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        text = particle.emoji,
+                                        fontSize = 32.sp,
+                                        modifier = Modifier
+                                            .graphicsLayer {
+                                                translationY = -particleProgress.value * 105.dp.toPx()
+                                                translationX = particle.startXRatio * 150.dp.toPx()
+                                                alpha = (1f - particleProgress.value).coerceIn(0f, 1f)
+                                                val scale = 0.75f + particleProgress.value * 0.65f
+                                                scaleX = scale
+                                                scaleY = scale
+                                            }
                                     )
                                 }
                             }
                         }
-
-                        itemsIndexed(messages, key = { _, it -> "${it.userId}_${it.timestamp}_${it.message.hashCode()}" }) { idx, msg ->
-                            val prevMsg = messages.getOrNull(idx - 1)
-                            val showSenderName = (prevMsg == null || prevMsg.userId != msg.userId || prevMsg.message.startsWith("🎵") || msg.message.startsWith("🎵") || (msg.timestamp - prevMsg.timestamp) > 120_000L)
-                            SwipeableMessageItem(
-                                message = msg,
-                                isMe = msg.userId == currentUserId,
-                                themeColor = dynamicPrimary,
-                                showSenderName = showSenderName,
-                                onQuote = {
-                                    val isSong = it.trackInfo != null || it.userId == "SYSTEM" || it.message.startsWith("🎵")
-                                    val title = it.trackInfo?.title ?: it.message.removePrefix("🎵 Now Playing: ").removePrefix("🎵 ").substringBefore(" - ")
-                                    val artist = it.trackInfo?.artist ?: it.message.substringAfter(" - ", "Echo Music")
-                                    val thumb = it.trackInfo?.thumbnail ?: it.replyTo?.thumbnail ?: (if (isSong) (currentMetadataThumbnail ?: roomState?.currentTrack?.thumbnail) else null)
-
-                                    val quotePayload = if (isSong) {
-                                        it.copy(
-                                            username = "🎵 $title",
-                                            message = "$title - $artist",
-                                            trackInfo = it.trackInfo ?: TrackInfo(
-                                                id = roomState?.currentTrack?.id ?: "current",
-                                                title = title,
-                                                artist = artist,
-                                                duration = 0L,
-                                                thumbnail = thumb
-                                            )
-                                        )
-                                    } else {
-                                        it
-                                    }
-                                    replyingTo = quotePayload
-                                    view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                                }
-                            )
-                        }
                     }
 
-                    // Quick Big Emoji Reaction Bar (Immediate send)
+                    // Quick Big Emoji Reaction Bar with immediate send and tapback burst
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -829,7 +1206,8 @@ fun FloatingChatBubble(
                         horizontalArrangement = Arrangement.SpaceEvenly,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        listOf("❤️", "🔥", "👏", "🎶", "😂", "😮", "🎉", "⚡").forEach { emoji ->
+                        val reactionEmojis = listOf("❤️", "🔥", "👏", "🎶", "😂", "😮", "🎉", "⚡")
+                        reactionEmojis.forEachIndexed { i, emoji ->
                             Text(
                                 text = emoji,
                                 fontSize = 24.sp,
@@ -837,6 +1215,13 @@ fun FloatingChatBubble(
                                     .clip(CircleShape)
                                     .clickable {
                                         view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                        val particleId = System.currentTimeMillis() + (0..1000).random()
+                                        val ratio = (i - (reactionEmojis.size - 1) / 2f) / ((reactionEmojis.size - 1) / 2f)
+                                        floatingEmojis = floatingEmojis + FloatingEmojiParticle(particleId, emoji, ratio * 0.85f)
+                                        coroutineScope.launch {
+                                            delay(1000)
+                                            floatingEmojis = floatingEmojis.filter { it.id != particleId }
+                                        }
                                         manager.sendChatMessage(
                                             emoji,
                                             replyingTo?.let { RepliedMessage(it.username, it.message, it.trackInfo?.thumbnail) }
@@ -849,76 +1234,82 @@ fun FloatingChatBubble(
                     }
 
                     // Quoted Reply Preview Banner (with album art for songs)
-                    replyingTo?.let { reply ->
-                        val quoteThumb = reply.trackInfo?.thumbnail ?: reply.replyTo?.thumbnail
-                        val isSongQuote = reply.trackInfo != null || reply.username.startsWith("🎵") || !quoteThumb.isNullOrBlank()
-                        val quoteHeader = if (isSongQuote) reply.username else "Replying to ${reply.username}"
-                        val quoteBody = reply.message
+                    AnimatedVisibility(
+                        visible = replyingTo != null,
+                        enter = expandVertically(spring()) + fadeIn(tween(160)),
+                        exit = shrinkVertically(tween(140)) + fadeOut(tween(140))
+                    ) {
+                        replyingTo?.let { reply ->
+                            val quoteThumb = reply.trackInfo?.thumbnail ?: reply.replyTo?.thumbnail
+                            val isSongQuote = reply.trackInfo != null || reply.username.startsWith("🎵") || !quoteThumb.isNullOrBlank()
+                            val quoteHeader = if (isSongQuote) reply.username else "Replying to ${reply.username}"
+                            val quoteBody = reply.message
 
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = dynamicPrimary.copy(alpha = 0.15f),
-                            modifier = Modifier
-                                .padding(horizontal = 12.dp, vertical = 4.dp)
-                                .wrapContentWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = dynamicPrimary.copy(alpha = 0.15f),
+                                modifier = Modifier
+                                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                                    .wrapContentWidth()
                             ) {
-                                if (!quoteThumb.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = quoteThumb,
-                                        contentDescription = null,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                    )
-                                } else if (isSongQuote) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(28.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(dynamicPrimary.copy(alpha = 0.3f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            painter = painterResource(R.drawable.music_note),
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (!quoteThumb.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = quoteThumb,
                                             contentDescription = null,
-                                            tint = dynamicPrimary,
-                                            modifier = Modifier.size(16.dp)
+                                            contentScale = ContentScale.Crop,
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                        )
+                                    } else if (isSongQuote) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(28.dp)
+                                                .clip(RoundedCornerShape(6.dp))
+                                                .background(dynamicPrimary.copy(alpha = 0.3f)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.music_note),
+                                                contentDescription = null,
+                                                tint = dynamicPrimary,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    }
+                                    Column(modifier = Modifier.widthIn(max = 220.dp)) {
+                                        Text(
+                                            text = quoteHeader,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = quoteBody,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
                                     }
-                                }
-                                Column(modifier = Modifier.widthIn(max = 220.dp)) {
-                                    Text(
-                                        text = quoteHeader,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = quoteBody,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { replyingTo = null },
-                                    modifier = Modifier.size(20.dp)
-                                ) {
-                                    Icon(
-                                        painterResource(R.drawable.close),
-                                        contentDescription = "Cancel reply",
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    IconButton(
+                                        onClick = { replyingTo = null },
+                                        modifier = Modifier.size(20.dp)
+                                    ) {
+                                        Icon(
+                                            painterResource(R.drawable.close),
+                                            contentDescription = "Cancel reply",
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1075,7 +1466,7 @@ fun FloatingChatBubble(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         OutlinedTextField(
@@ -1083,7 +1474,7 @@ fun FloatingChatBubble(
                             onValueChange = { messageInput = it },
                             placeholder = {
                                 Text(
-                                    if (isSearchMode) "Search songs on YouTube..." else "Send a message...",
+                                    if (isSearchMode) "Search songs on YouTube..." else "Send a message... (Hold ✈ to search)",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             },
@@ -1121,134 +1512,94 @@ fun FloatingChatBubble(
                                 )
                             }
                         } else {
-                            // Send / Long-Press Search Button
+                            // Send / Hold-to-Search Button with tactile radial hold arc
                             Box(
-                                modifier = Modifier
-                                    .size(46.dp)
-                                    .clip(CircleShape)
-                                    .background(dynamicPrimary)
-                                    .combinedClickable(
-                                        onClick = {
-                                            if (messageInput.isNotBlank()) {
-                                                manager.sendChatMessage(
-                                                    messageInput.trim(),
-                                                    replyingTo?.let { RepliedMessage(it.username, it.message, it.trackInfo?.thumbnail ?: it.replyTo?.thumbnail) }
-                                                )
-                                                messageInput = ""
-                                                replyingTo = null
-                                            }
-                                        },
-                                        onLongClick = {
-                                            if (messageInput.isBlank()) {
-                                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
-                                                isSearchMode = true
-                                                focusRequester.requestFocus()
-                                            }
-                                        }
-                                    ),
+                                modifier = Modifier.size(46.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.send_chat),
-                                    contentDescription = "Send (Long press to search)",
-                                    tint = onDynamicPrimary,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                if (sendHoldProgress.value > 0f) {
+                                    Canvas(modifier = Modifier.fillMaxSize()) {
+                                        val stroke = 3.dp.toPx()
+                                        drawArc(
+                                            brush = Brush.sweepGradient(listOf(dynamicPrimary, dynamicAccent, dynamicPrimary)),
+                                            startAngle = -90f,
+                                            sweepAngle = sendHoldProgress.value * 360f,
+                                            useCenter = false,
+                                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                                        )
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(dynamicPrimary)
+                                        .pointerInput(messageInput) {
+                                            detectTapGestures(
+                                                onPress = {
+                                                    if (messageInput.isBlank()) {
+                                                        val holdJob = coroutineScope.launch {
+                                                            sendHoldProgress.animateTo(1f, tween(450, easing = LinearEasing))
+                                                            if (sendHoldProgress.value >= 1f) {
+                                                                view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                                                                isSearchMode = true
+                                                                focusRequester.requestFocus()
+                                                            }
+                                                        }
+                                                        tryAwaitRelease()
+                                                        holdJob.cancel()
+                                                        sendHoldProgress.animateTo(0f, tween(150))
+                                                    }
+                                                },
+                                                onTap = {
+                                                    if (messageInput.isNotBlank()) {
+                                                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                                        manager.sendChatMessage(
+                                                            messageInput.trim(),
+                                                            replyingTo?.let { RepliedMessage(it.username, it.message, it.trackInfo?.thumbnail ?: it.replyTo?.thumbnail) }
+                                                        )
+                                                        messageInput = ""
+                                                        replyingTo = null
+                                                    }
+                                                }
+                                            )
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.send_chat),
+                                        contentDescription = "Send (Hold to search)",
+                                        tint = onDynamicPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
 
-                    // Embedded Dynamic Mini-Player at Bottom (High Contrast Controls)
-                    Surface(
-                        color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.95f),
-                        shape = RoundedCornerShape(bottomStart = 28.dp, bottomEnd = 28.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                    // Embedded App Mini-Player at Bottom (uses user's configured theme & style)
+                    effectiveConnection?.let { conn ->
+                        CompositionLocalProvider(
+                            LocalPlayerConnection provides conn
                         ) {
-                            Row(
-                                modifier = Modifier.weight(1f),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                AsyncImage(
-                                    model = currentMetadataThumbnail,
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier
-                                        .size(40.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(dynamicPrimary.copy(alpha = 0.3f))
-                                )
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = currentMetadataTitle ?: "No track playing",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    Text(
-                                        text = currentMetadataArtist,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-
-                            // Playback Controls (Brilliant contrast on all themes)
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
+                                MiniPlayer(
+                                    positionState = positionState,
+                                    durationState = durationState,
+                                    modifier = Modifier.fillMaxWidth(),
                                     onClick = {
-                                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                        val player = effectiveConnection?.player
-                                        if (player != null) player.seekToPrevious() else effectiveConnection?.seekToPrevious()
-                                    }
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.skip_previous),
-                                        contentDescription = "Previous",
-                                        tint = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                        val player = effectiveConnection?.player
-                                        if (player != null) {
-                                            if (player.playWhenReady) player.pause() else player.play()
-                                        } else {
-                                            if (isPlaying) effectiveConnection?.pause() else effectiveConnection?.play()
+                                        if (navController != null) {
+                                            closeChatModal()
+                                            navController.navigate("player")
                                         }
                                     }
-                                ) {
-                                    Icon(
-                                        painter = painterResource(if (isPlaying) R.drawable.pause else R.drawable.play),
-                                        contentDescription = if (isPlaying) "Pause" else "Play",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                IconButton(
-                                    onClick = {
-                                        view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                                        val player = effectiveConnection?.player
-                                        if (player != null) player.seekToNext() else effectiveConnection?.seekToNext()
-                                    }
-                                ) {
-                                    Icon(
-                                        painter = painterResource(R.drawable.skip_next),
-                                        contentDescription = "Next",
-                                        tint = MaterialTheme.colorScheme.onSurface
-                                    )
-                                }
+                                )
                             }
                         }
                     }
@@ -1258,21 +1609,27 @@ fun FloatingChatBubble(
     }
 }
 }
+}
+}
 
 /**
- * Swipeable message item with swipe-left-to-quote and high-contrast indicators.
+ * Swipeable message item with swipe-left-to-quote, tactile detent haptic, and item animations.
  */
 @Composable
-private fun SwipeableMessageItem(
+private fun LazyItemScope.SwipeableMessageItem(
     message: ChatMessagePayload,
     isMe: Boolean,
     themeColor: Color,
     showSenderName: Boolean = true,
+    isPrevSame: Boolean = false,
+    isNextSame: Boolean = false,
     onQuote: (ChatMessagePayload) -> Unit
 ) {
     val density = LocalDensity.current
+    val view = LocalView.current
     val maxSwipePx = with(density) { 72.dp.toPx() }
     val swipeOffset = remember { Animatable(0f) }
+    var hasTriggeredDetent by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
     val isSystem = message.userId == "SYSTEM" || message.message.startsWith("🎵")
@@ -1280,18 +1637,21 @@ private fun SwipeableMessageItem(
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .animateItem()
             .pointerInput(message) {
                 detectHorizontalDragGestures(
-                    onDragStart = { },
+                    onDragStart = { hasTriggeredDetent = false },
                     onDragEnd = {
                         if (abs(swipeOffset.value) >= maxSwipePx * 0.65f) {
                             onQuote(message)
                         }
+                        hasTriggeredDetent = false
                         coroutineScope.launch {
                             swipeOffset.animateTo(0f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
                         }
                     },
                     onDragCancel = {
+                        hasTriggeredDetent = false
                         coroutineScope.launch {
                             swipeOffset.animateTo(0f)
                         }
@@ -1299,20 +1659,29 @@ private fun SwipeableMessageItem(
                     onHorizontalDrag = { change, dragAmount ->
                         change.consume()
                         coroutineScope.launch {
-                            // Swipe left: dragAmount.x is negative
-                            swipeOffset.snapTo((swipeOffset.value + dragAmount).coerceIn(-maxSwipePx, 0f))
+                            val nextVal = (swipeOffset.value + dragAmount).coerceIn(-maxSwipePx, 0f)
+                            if (abs(nextVal) >= maxSwipePx * 0.65f && !hasTriggeredDetent) {
+                                view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
+                                hasTriggeredDetent = true
+                            }
+                            swipeOffset.snapTo(nextVal)
                         }
                     }
                 )
             }
     ) {
-        // Revealed Quote Icon on the right side when swiping left
+        // Revealed Quote Icon on the right side when swiping left with spring scale
         if (swipeOffset.value < -10f) {
+            val quoteScale = (abs(swipeOffset.value) / (maxSwipePx * 0.65f)).coerceIn(0.5f, 1.25f)
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .padding(end = 8.dp)
                     .size(36.dp)
+                    .graphicsLayer {
+                        scaleX = quoteScale
+                        scaleY = quoteScale
+                    }
                     .clip(CircleShape)
                     .background(MaterialTheme.colorScheme.primaryContainer),
                 contentAlignment = Alignment.Center
@@ -1335,7 +1704,14 @@ private fun SwipeableMessageItem(
             if (isSystem) {
                 SongChangeMessageCard(message = message, themeColor = themeColor)
             } else {
-                UserChatMessageBubble(message = message, isMe = isMe, themeColor = themeColor, showSenderName = showSenderName)
+                UserChatMessageBubble(
+                    message = message,
+                    isMe = isMe,
+                    themeColor = themeColor,
+                    showSenderName = showSenderName,
+                    isPrevSame = isPrevSame,
+                    isNextSame = isNextSame
+                )
             }
         }
     }
@@ -1437,14 +1813,16 @@ private fun SongChangeMessageCard(
 }
 
 /**
- * Standard User Chat Message Bubble with reply card, mini album art, and big emoji reactions.
+ * Standard User Chat Message Bubble with adaptive corner grouping, reply card, and big emoji reactions.
  */
 @Composable
 private fun UserChatMessageBubble(
     message: ChatMessagePayload,
     isMe: Boolean,
     themeColor: Color,
-    showSenderName: Boolean = true
+    showSenderName: Boolean = true,
+    isPrevSame: Boolean = false,
+    isNextSame: Boolean = false
 ) {
     val onThemeColor = themeColor.contrastTextColor()
     val isEmojiOnlyMessage = remember(message.message) {
@@ -1461,16 +1839,30 @@ private fun UserChatMessageBubble(
         }
     }
 
+    // Adaptive grouped corner radii
+    val topStartRadius = if (!isMe && isPrevSame) 4.dp else 18.dp
+    val topEndRadius = if (isMe && isPrevSame) 4.dp else 18.dp
+    val bottomStartRadius = if (!isMe && isNextSame) 4.dp else (if (isMe) 18.dp else 4.dp)
+    val bottomEndRadius = if (isMe && isNextSame) 4.dp else (if (isMe) 4.dp else 18.dp)
+    val bubbleShape = RoundedCornerShape(
+        topStart = topStartRadius,
+        topEnd = topEndRadius,
+        bottomStart = bottomStartRadius,
+        bottomEnd = bottomEndRadius
+    )
+
     Column(
-        modifier = Modifier.fillMaxWidth().padding(top = if (showSenderName) 4.dp else 1.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = if (showSenderName) 4.dp else 1.dp),
         horizontalAlignment = if (isMe) Alignment.End else Alignment.Start
     ) {
         if (showSenderName) {
             Text(
                 text = message.username,
                 style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = if (isMe) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+                color = if (isMe) MaterialTheme.colorScheme.primary else getVibrantSenderColor(message.username),
                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
             )
         }
@@ -1484,12 +1876,7 @@ private fun UserChatMessageBubble(
             )
         } else {
             Surface(
-                shape = RoundedCornerShape(
-                    topStart = 18.dp,
-                    topEnd = 18.dp,
-                    bottomStart = if (isMe) 18.dp else 4.dp,
-                    bottomEnd = if (isMe) 4.dp else 18.dp
-                ),
+                shape = bubbleShape,
                 color = if (isMe) themeColor else MaterialTheme.colorScheme.surfaceVariant,
                 shadowElevation = 2.dp,
                 modifier = Modifier.widthIn(max = 280.dp)
@@ -1582,6 +1969,12 @@ private fun UserChatMessageBubble(
 private fun CircularFloatingBubble(
     bubbleDiameter: androidx.compose.ui.unit.Dp,
     dragScale: Float,
+    dragTilt: Float = 0f,
+    squashScaleX: Float = 1f,
+    squashScaleY: Float = 1f,
+    audioHaloScale: Float = 1f,
+    audioHaloAlpha: Float = 0.35f,
+    bubbleHaloPref: Boolean = true,
     isDragging: Boolean,
     dynamicPrimary: Color,
     dynamicAccent: Color,
@@ -1596,22 +1989,53 @@ private fun CircularFloatingBubble(
     Box(
         modifier = Modifier
             .wrapContentSize()
-            .padding(vertical = 4.dp, horizontal = 2.dp)
+            .padding(8.dp),
+        contentAlignment = Alignment.Center
     ) {
+        // Audio breathing halo behind bubble
+        if (isPlaying && bubbleHaloPref) {
+            Box(
+                modifier = Modifier
+                    .size(bubbleDiameter * 1.35f)
+                    .graphicsLayer {
+                        scaleX = audioHaloScale
+                        scaleY = audioHaloScale
+                        alpha = audioHaloAlpha
+                    }
+                    .clip(CircleShape)
+                    .background(
+                        Brush.radialGradient(
+                            listOf(
+                                dynamicPrimary.copy(alpha = 0.55f),
+                                dynamicAccent.copy(alpha = 0.25f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
+
         Surface(
             onClick = onClick,
             shape = CircleShape,
             color = dynamicPrimary.copy(alpha = 0.15f),
-            shadowElevation = if (isDragging) 20.dp else 10.dp,
+            shadowElevation = if (isDragging) 22.dp else 12.dp,
             modifier = Modifier
-                .graphicsLayer { scaleX = dragScale; scaleY = dragScale }
+                .graphicsLayer {
+                    rotationZ = dragTilt
+                    scaleX = dragScale * squashScaleX
+                    scaleY = dragScale * squashScaleY
+                }
                 .size(bubbleDiameter)
                 .clip(CircleShape)
-                .border(
-                    width = if (isDragging) 2.5.dp else 2.dp,
-                    brush = Brush.sweepGradient(listOf(dynamicPrimary, dynamicAccent, dynamicPrimary)),
-                    shape = CircleShape
-                )
+                .drawWithContent {
+                    drawContent()
+                    drawCircle(
+                        color = dynamicPrimary,
+                        radius = size.minDimension / 2f - (if (isDragging) 1.25.dp.toPx() else 1.dp.toPx()),
+                        style = Stroke(width = if (isDragging) 2.5.dp.toPx() else 2.dp.toPx())
+                    )
+                }
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -1673,7 +2097,7 @@ private fun CircularFloatingBubble(
             }
         }
 
-        // Counter badge placed on opposite edge to avoid screen clipping
+        // Counter badge placed OUTSIDE the Surface on the screen-facing shoulder so it is never cut
         if (unreadCount > 0) {
             Badge(
                 containerColor = MaterialTheme.colorScheme.error,
@@ -1681,14 +2105,15 @@ private fun CircularFloatingBubble(
                 modifier = Modifier
                     .align(if (isOnRightSide) Alignment.TopStart else Alignment.TopEnd)
                     .offset(
-                        x = if (isOnRightSide) 2.dp else (-2).dp,
-                        y = (-2).dp
+                        x = if (isOnRightSide) 4.dp else (-4).dp,
+                        y = 4.dp
                     )
             ) {
                 Text(
                     text = if (unreadCount > 99) "99+" else unreadCount.toString(),
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
+                    fontSize = 10.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(horizontal = 2.dp)
                 )
             }
         }
@@ -1702,33 +2127,61 @@ private fun SpeechBubbleCallout(
     themeColor: Color,
     fontScale: Float,
     fontWeight: FontWeight,
+    onSwipeDismiss: () -> Unit = {},
     onClick: () -> Unit
 ) {
     val bubbleShape = if (isOnRightSide) {
-        RoundedCornerShape(topStart = 18.dp, topEnd = 6.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+        RoundedCornerShape(topStart = 16.dp, topEnd = 6.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
     } else {
-        RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomStart = 18.dp, bottomEnd = 18.dp)
+        RoundedCornerShape(topStart = 6.dp, topEnd = 16.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
     }
+
+    val calloutSwipeOffset = remember { Animatable(0f) }
+    val density = LocalDensity.current
+    val coroutineScope = rememberCoroutineScope()
 
     Surface(
         onClick = onClick,
         shape = bubbleShape,
         color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.96f),
         shadowElevation = 12.dp,
-        border = BorderStroke(1.5.dp, themeColor.copy(alpha = 0.7f)),
+        border = BorderStroke(1.2.dp, themeColor),
         modifier = Modifier
-            .widthIn(min = 140.dp, max = 220.dp)
+            .widthIn(min = 90.dp, max = 260.dp)
+            .wrapContentWidth()
+            .offset { IntOffset(calloutSwipeOffset.value.roundToInt(), 0) }
+            .pointerInput(Unit) {
+                detectHorizontalDragGestures(
+                    onDragStart = { },
+                    onDragEnd = {
+                        if (abs(calloutSwipeOffset.value) > with(density) { 45.dp.toPx() }) {
+                            onSwipeDismiss()
+                        }
+                        coroutineScope.launch {
+                            calloutSwipeOffset.animateTo(0f)
+                        }
+                    },
+                    onDragCancel = {
+                        coroutineScope.launch { calloutSwipeOffset.animateTo(0f) }
+                    },
+                    onHorizontalDrag = { change, dragAmount ->
+                        change.consume()
+                        coroutineScope.launch {
+                            calloutSwipeOffset.snapTo(calloutSwipeOffset.value + dragAmount)
+                        }
+                    }
+                )
+            }
             .padding(vertical = 4.dp)
     ) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            val visible = unreadMessages.takeLast(4)
+            val visible = unreadMessages.takeLast(3)
             val linesPerMessage = when (visible.size) {
-                1 -> 5
+                1 -> 4
                 2 -> 2
-                3 -> 2
                 else -> 1
             }
             visible.forEachIndexed { idx, msg ->
@@ -1737,67 +2190,116 @@ private fun SpeechBubbleCallout(
 
                 val prevMsg = visible.getOrNull(idx - 1)
                 val showSenderName = (prevMsg == null || prevMsg.userId != msg.userId || prevMsg.username != msg.username)
+                val vibrantSenderColor = if (isSong) themeColor else getVibrantSenderColor(msg.username)
 
                 if (msg.replyTo != null && visible.size <= 2) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.65f),
+                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
+                        modifier = Modifier.padding(bottom = 2.dp)
                     ) {
-                        if (!msg.replyTo.thumbnail.isNullOrBlank()) {
-                            AsyncImage(
-                                model = msg.replyTo.thumbnail,
-                                contentDescription = null,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier
-                                    .size((12 * fontScale).dp)
-                                    .clip(RoundedCornerShape(3.dp))
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (!msg.replyTo.thumbnail.isNullOrBlank()) {
+                                AsyncImage(
+                                    model = msg.replyTo.thumbnail,
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size((12 * fontScale).dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                )
+                            }
+                            Text(
+                                text = "↪ ${msg.replyTo.username}: ${msg.replyTo.message.take(22)}",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    fontSize = (9 * fontScale).sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
                             )
                         }
-                        Text(
-                            text = "↪ ${msg.replyTo.username}",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontSize = (9 * fontScale).sp
-                            ),
-                            color = themeColor.copy(alpha = 0.85f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                Column(
+                    modifier = Modifier.wrapContentWidth(),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    if (isSong && !quoteThumb.isNullOrBlank()) {
-                        AsyncImage(
-                            model = quoteThumb,
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            modifier = Modifier
-                                .size((16 * fontScale).dp)
-                                .clip(RoundedCornerShape(4.dp))
-                        )
+                    if (showSenderName) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = vibrantSenderColor.copy(alpha = 0.22f),
+                            border = BorderStroke(0.75.dp, vibrantSenderColor.copy(alpha = 0.55f)),
+                            modifier = Modifier.padding(bottom = 2.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                if (isSong) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.music_note),
+                                        contentDescription = null,
+                                        tint = vibrantSenderColor,
+                                        modifier = Modifier.size(10.dp)
+                                    )
+                                    Text(
+                                        text = "Now Playing",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = (9.5f * fontScale).sp,
+                                            fontWeight = FontWeight.Bold
+                                        ),
+                                        color = Color.White
+                                    )
+                                } else {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(vibrantSenderColor)
+                                    )
+                                    Text(
+                                        text = msg.username,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = (10f * fontScale).sp,
+                                            fontWeight = FontWeight.ExtraBold
+                                        ),
+                                        color = vibrantSenderColor
+                                    )
+                                }
+                            }
+                        }
                     }
-                    Column {
-                        if (showSenderName) {
-                            Text(
-                                text = "${msg.username}:",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontSize = (10 * fontScale).sp,
-                                    fontWeight = FontWeight.Bold
-                                ),
-                                color = themeColor,
-                                maxLines = 1
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (isSong && !quoteThumb.isNullOrBlank()) {
+                            AsyncImage(
+                                model = quoteThumb,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .size((20 * fontScale).dp)
+                                    .clip(RoundedCornerShape(4.dp))
                             )
                         }
                         Text(
                             text = if (isSong) msg.message.removePrefix("🎵 Now Playing: ").removePrefix("🎵 ") else msg.message,
                             style = MaterialTheme.typography.bodySmall.copy(
-                                fontSize = (11 * fontScale).sp,
-                                fontWeight = fontWeight
+                                fontSize = (11.5f * fontScale).sp,
+                                fontWeight = fontWeight,
+                                lineHeight = (15f * fontScale).sp
                             ),
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = Color.White,
                             maxLines = linesPerMessage,
                             overflow = TextOverflow.Ellipsis
                         )
@@ -1807,4 +2309,5 @@ private fun SpeechBubbleCallout(
         }
     }
 }
+
 

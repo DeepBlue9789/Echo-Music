@@ -341,6 +341,7 @@ class MainActivity : ComponentActivity() {
             handleDeepLinkIntent(intent, navController)
             handleRecognitionIntent(intent, navController)
             handleAssistantSearchIntent(intent, navController)
+            handleListenTogetherSettingsIntent(intent, navController)
         } else {
             pendingIntent = intent
         }
@@ -900,6 +901,7 @@ class MainActivity : ComponentActivity() {
                         handleDeepLinkIntent(pendingIntent!!, navController)
                         handleRecognitionIntent(pendingIntent!!, navController)
                         handleAssistantSearchIntent(pendingIntent!!, navController)
+                        handleListenTogetherSettingsIntent(pendingIntent!!, navController)
                         pendingIntent = null
                     } else if (intent != null && (intent.action == Intent.ACTION_VIEW || intent.action == Intent.ACTION_SEND)) {
                         handleDeepLinkIntent(intent, navController)
@@ -907,6 +909,8 @@ class MainActivity : ComponentActivity() {
                         handleRecognitionIntent(intent, navController)
                     } else if (intent != null && intent.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) {
                         handleAssistantSearchIntent(intent, navController)
+                    } else if (intent != null && intent.getBooleanExtra("EXTRA_OPEN_LISTEN_TOGETHER_SETTINGS", false)) {
+                        handleListenTogetherSettingsIntent(intent, navController)
                     }
                 }
 
@@ -918,6 +922,8 @@ class MainActivity : ComponentActivity() {
                             handleRecognitionIntent(intent, navController)
                         } else if (intent.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH) {
                             handleAssistantSearchIntent(intent, navController)
+                        } else if (intent.getBooleanExtra("EXTRA_OPEN_LISTEN_TOGETHER_SETTINGS", false)) {
+                            handleListenTogetherSettingsIntent(intent, navController)
                         }
                     }
 
@@ -1448,6 +1454,13 @@ class MainActivity : ComponentActivity() {
 
                 }
             }
+        }
+    }
+
+    private fun handleListenTogetherSettingsIntent(intent: Intent, navController: NavHostController) {
+        if (intent.getBooleanExtra("EXTRA_OPEN_LISTEN_TOGETHER_SETTINGS", false)) {
+            intent.removeExtra("EXTRA_OPEN_LISTEN_TOGETHER_SETTINGS")
+            navController.navigate("settings/integrations/listen_together")
         }
     }
 

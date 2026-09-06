@@ -190,6 +190,8 @@ val ListenTogetherChatBlurIntensityKey = floatPreferencesKey("listenTogetherChat
 val ListenTogetherChatTintIntensityKey = floatPreferencesKey("listenTogetherChatTintIntensity") // 0.10f to 0.85f, default 0.35f
 val ListenTogetherChatFontSizeKey = stringPreferencesKey("listenTogetherChatFontSize") // "small", "medium", "large"
 val ListenTogetherChatFontWeightKey = stringPreferencesKey("listenTogetherChatFontWeight") // "normal", "medium", "bold"
+val ListenTogetherBubbleHaloKey = booleanPreferencesKey("listenTogetherBubbleHalo") // default true: audio breathing halo & shimmer
+val ListenTogetherChatDragToDismissKey = booleanPreferencesKey("listenTogetherChatDragToDismiss") // default true: swipe down to dismiss chat modal
 
 // Persistent Session Keys
 val ListenTogetherSessionTokenKey = stringPreferencesKey("listenTogetherSessionToken")

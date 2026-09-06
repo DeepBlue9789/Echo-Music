@@ -130,6 +130,8 @@ fun ListenTogetherSettings(
     var chatTintIntensity by rememberPreference(ListenTogetherChatTintIntensityKey, 0.35f)
     var chatFontSize by rememberPreference(ListenTogetherChatFontSizeKey, "medium")
     var chatFontWeight by rememberPreference(ListenTogetherChatFontWeightKey, "medium")
+    var bubbleHalo by rememberPreference(echo.music.iad1tya.constants.ListenTogetherBubbleHaloKey, true)
+    var chatDragToDismiss by rememberPreference(echo.music.iad1tya.constants.ListenTogetherChatDragToDismissKey, true)
     
     var showServerUrlDialog by rememberSaveable { mutableStateOf(false) }
     var showUsernameDialog by rememberSaveable { mutableStateOf(false) }
@@ -814,6 +816,52 @@ fun ListenTogetherSettings(
                             )
                         },
                         onClick = { showChatAppearanceDialog = true }
+                    ),
+                    IntegrationCardItem(
+                        icon = painterResource(R.drawable.music_note),
+                        title = { Text("Bubble Audio Glow & Shimmer") },
+                        description = {
+                            Text("Pulsing audio halo and continuous liquid sweep border when track is playing")
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = bubbleHalo,
+                                onCheckedChange = { bubbleHalo = it },
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (bubbleHalo) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { bubbleHalo = !bubbleHalo }
+                    ),
+                    IntegrationCardItem(
+                        icon = painterResource(R.drawable.arrow_downward),
+                        title = { Text("Swipe Down to Dismiss Chat") },
+                        description = {
+                            Text("Interactive downward drag gesture on chat header to fluidly collapse into bubble")
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = chatDragToDismiss,
+                                onCheckedChange = { chatDragToDismiss = it },
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (chatDragToDismiss) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { chatDragToDismiss = !chatDragToDismiss }
                     )
                 )
             )

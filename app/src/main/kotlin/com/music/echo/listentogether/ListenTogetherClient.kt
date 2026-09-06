@@ -1733,7 +1733,17 @@ class ClockSynchronizer(
     fun start() {
         syncJob?.cancel()
         syncJob = scope.launch(Dispatchers.IO) {
-            // Initial burst of 8 pings
+            // Fast initial 2-ping measurement to establish baseline serverTimeOffset in ~50ms
+            for (i in 0 until 2) {
+                if (client.connectionState.value != ConnectionState.CONNECTED) break
+                val t1 = SystemClock.elapsedRealtime()
+                client.sendClockSyncRequest(t1)
+                delay(20L)
+            }
+            delay(80L)
+            processSamples(isInitial = true)
+
+            // Initial full burst of 8 pings for high precision
             runBurst(isInitial = true)
 
             // Periodic 30s background sync

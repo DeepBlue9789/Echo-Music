@@ -100,13 +100,34 @@ Instead of hard seeking which causes audible audio cutouts, follower devices use
     ```
   - Mathematically guarantees that `CircularFloatingBubble` remains pinned at `clampedX` on every animation frame regardless of callout balloon size.
 
-### B. Hardware-Accelerated Cross-Window Background Blur
-- Uses `FLAG_HARDWARE_ACCELERATED` and Android 12+ `FLAG_BLUR_BEHIND` (`blurBehindRadius`) in `ListenTogetherOverlayService.kt`.
+### B. Hardware-Accelerated Cross-Window Background Blur & Frosted Glass Backdrop
+- Uses `FLAG_HARDWARE_ACCELERATED`, Android 12+ `FLAG_BLUR_BEHIND` (`blurBehindRadius`), and `FLAG_DIM_BEHIND` (`dimAmount = 0.32f`) in `ListenTogetherOverlayService.kt`.
+- OEM Compatibility: Removed fragile `isCrossWindowBlurEnabled` check (which returned false on some Samsung One UI devices despite hardware blur support) and clamped blur radius up to 150px.
+- Internal In-App Frosted Glass: Layered `AsyncImage` album backdrop with `.blur(chatBlurIntensity.dp).alpha(0.38f)` to provide genuine frosted glass optics in both overlay and in-app modes.
 - Custom appearance controls in `ListenTogetherSettings.kt`:
   - **Glass Blur Intensity** (`0 dp` to `30 dp`)
   - **Tint Opacity** (`10%` to `85%`)
   - **Font Size** (Small 88%, Medium 100%, Large 115%)
   - **Font Weight** (Normal, Medium, Bold)
+  - **Bubble Audio Glow & Shimmer** (Toggle: Breathing radial halo and rotating conic specular border)
+  - **Swipe Down to Dismiss Chat** (Toggle: Interactive drag-to-dismiss gesture on the chat window)
+
+### C. Fluid Bubble Physics & Dynamic Micro-Animations
+- **Velocity-Aware Drag Tilt**: Floating bubble tilts up to $\pm 18^\circ$ based on horizontal velocity and springs back to $0^\circ$ on release.
+- **Edge Collision Squash & Stretch**: An edge collision triggers a spring deformation ($0.84\times$ horizontal, $1.15\times$ vertical) before settling.
+- **Continuous Sweeping Conic Border Shimmer**: Infinite transition rotates a multi-color specular border gradient around the circular bubble perimeter.
+- **Breathing Audio Halo**: When audio is playing, a radial gradient halo expands and contracts ($1.0\times$ to $1.25\times$) with sinusoidal alpha pulses.
+- **Magnetic Snapping to Dismiss Target**: As the bubble nears the bottom-center dismiss zone (< 130dp), magnetic pull pulls it toward the center with scaling feedback ($1.0\times \to 1.35\times$) and haptic vibration.
+- **Speech Bubble Callout Timer & Gestures**: Specular glass border, hairline countdown progress timer (3s auto-dismiss), and sideways swipe-to-dismiss gesture.
+
+### D. Compact Chat Window & In-Chat Interactions
+- **Ultra-Compact Glass Header**: Height reduced from ~80dp to ~42dp. Features an iOS-style centered pill drag handle, live session status badge, and circular mini action buttons (Settings, Disconnect, Close).
+- **Interactive Drag-to-Dismiss**: Dragging down on the header (> 95dp) collapses/dismisses the modal with scale/alpha interpolation.
+- **Tapback Floating Emoji Bursts**: Tapping emojis in the reaction bar spawns upward-floating, fading emoji particles over the chat history.
+- **Hold-to-Search Radial Progress Arc**: Pressing the send button when the input is empty triggers a 450ms radial progress ring around the button before activating the in-chat YouTube song search sheet.
+- **Embedded Mini-Player Enhancements**: Glowing hairline playback progress bar across the top edge and horizontal swipe gestures to skip next/previous tracks.
+- **Adaptive Message Corner Radii**: Grouped message bubbles automatically adapt their corner radii depending on adjacent messages from the same sender.
+- **Tactile Swipe-to-Quote Detent**: Swiping left on messages provides a context click haptic vibration at the trigger threshold.
 
 ---
 
@@ -309,3 +330,33 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 ### B. Resolution
 - Restored `showRomanizedLyrics` (checking `currentSong?.romanizeLyrics` across all language preferences: Japanese, Korean, Russian, Ukrainian, Serbian, Bulgarian, Belarusian, Kyrgyz, Macedonian, Chinese, Hindi, Punjabi).
 - Restored `hasActiveTranslations` rendering across all lyrics animation styles (`ECHOMUSIC`, `METRO_LYRICS`, `LYRICS_V2`, `APPLE_V2`, classic/fallback).
+
+---
+
+## 11. Listen Together UI Polishing, Dynamic Theme Sync & Release v1.2.4 Update
+
+### A. Chat Window Layout Alignment & Mini-Player Placement
+- **Layout Bug**: The horizontal input `Row` in `FloatingChatBubble.kt` previously failed to close prior to inserting `MiniPlayer`, crowding the send button and embedded mini-player onto the same row and squashing the message text field.
+- **Resolution**: Closed the horizontal `Row` directly after the send button container. Placed the embedded `MiniPlayer` vertically beneath the input bar inside the modal's parent `Column`. The message list retains `.weight(1f)`, the input bar spans full width, and the mini-player sits cleanly at the bottom.
+
+### B. Mini-Player Dynamic Song Color Synchronization
+- **Color Desynchronization**: In overlay mode and inside the floating chat window, `MaterialTheme` was unseeded, defaulting to Android's dynamic wallpaper palette (light periwinkle blue).
+- **Resolution**:
+  - In `FloatingChatBubble.kt`, synchronized theme extraction with `MainActivity.kt`: extracted `bitmap.extractThemeColor()` and honored `DynamicThemeKey` and `SelectedThemeColorKey` preferences.
+  - Wrapped the entire modal card in `echomusicTheme(darkTheme = true, pureBlack = pureBlack, themeColor = dynamicPrimary)`.
+  - All embedded `MiniPlayer` controls (cookie play/pause button, circular progress ring, and seek bar) now dynamically inherit the active song's vibrant album art color scheme, matching the in-app player.
+
+### C. Bubble Aesthetics & Glow Elimination
+- **Solid Preview Callout Border**: Replaced linear gradient border in `SpeechBubbleCallout` with a clean `BorderStroke(1.2.dp, themeColor)`.
+- **Elimination of Spinning Glow**: Removed the infinite 360-degree rotating sweep border gradient (`borderAngle`) from `CircularFloatingBubble`. Replaced with a clean, static, solid `dynamicPrimary` circle border (`Stroke(2.dp)`).
+
+### D. Overlay Settings Navigation Intent
+- In `MainActivity.kt`, implemented `handleListenTogetherSettingsIntent` which captures `EXTRA_OPEN_LISTEN_TOGETHER_SETTINGS` and routes `navController.navigate("settings/integrations/listen_together")` across `onNewIntent`, `LaunchedEffect`, and `DisposableEffect`, restoring the gear button's navigation capability from overlay mode.
+
+### E. Production Release Verification & Upstream Merge Preservation
+- **Preserved Version Number**: Maintained `versionName = "1.2.4"` and `versionCode = 154` in `app/build.gradle.kts` so future upstream merges and the `.github/workflows/sync-upstream.yml` cron workflow continue without merge or tag collisions.
+- **Device Deployment**:
+  - Completely uninstalled `echo.music.iad1tya.debug` from both Device A (`100.99.1.23:5555`) and Device B (`100.99.1.9:5555`).
+  - Compiled and installed official production release build `app-universal-gms-release.apk` (`echo.music.iad1tya`) on both devices.
+- **GitHub Release Update**: Updated latest release `v1.2.4` assets on `DeepBlue9789/Echo-Music` with the newly compiled release APKs (`app-universal-gms-release.apk` and `EchoMusic-v1.2.4-universal.apk`).
+
