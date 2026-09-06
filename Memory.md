@@ -146,8 +146,11 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - If upstream has changes:
   1. Merges `upstream/main` into `origin/main` automatically.
   2. In case of merge conflicts, favors fork Listen Together features (`git checkout --ours .`).
-  3. Pushes updated `main` to `origin`.
-  4. Generates a new release tag `v<version>` (matching or exceeding upstream) and pushes the tag to trigger the release builder.
+  3. **Workflow Rejection Prevention (`git rm -rf --cached .github/workflows/`)**:
+     - *Issue*: When upstream added a new workflow (`.github/workflows/contributors.yml`), standard `git checkout HEAD -- .github/workflows/` failed to remove newly introduced, staged files not present in HEAD. Pushing this commit caused GitHub to reject the push (`refusing to allow a GitHub App to create or update workflow without workflows permission`).
+     - *Fix*: Added `git rm -rf --cached .github/workflows/`, followed by `git checkout HEAD -- .github/workflows/` and `git clean -fd .github/workflows/`. This guarantees `.github/workflows/` remains 100% byte-for-byte identical to fork `HEAD`, so `GITHUB_TOKEN` never modifies workflows and pushes succeed without permission errors.
+  4. Pushes updated `main` to `origin`.
+  5. Generates a new release tag `v<version>` (matching or exceeding upstream) and pushes the tag to trigger the release builder.
 
 ### B. Automated Release Publisher (`.github/workflows/build-release.yml`)
 - Triggered automatically on tag push (`v*`) or manual dispatch or via `workflow_call` from `sync-upstream.yml`.
