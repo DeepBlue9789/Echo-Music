@@ -18,7 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import android.animation.ValueAnimator
-import android.view.animation.OvershootInterpolator
+import android.view.animation.DecelerateInterpolator
 import androidx.compose.ui.platform.ComposeView
 import androidx.lifecycle.*
 import androidx.savedstate.SavedStateRegistry
@@ -96,17 +96,24 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
             val manager = entryPoint.listenTogetherManager()
 
             val density = resources.displayMetrics.density
-            val bubbleSizePx = (64 * density).toInt()
+            val bubbleDiameterPx = (56 * density).toInt()
+            val bubbleContainerPx = bubbleDiameterPx + (16 * density).toInt()
 
-            val leftDockX = - (bubbleSizePx * 0.25f).toInt()
-            val rightDockX = resources.displayMetrics.widthPixels - (bubbleSizePx * 0.75f).toInt()
+            val tuckPx = (bubbleContainerPx * 0.20f).toInt()
+            val leftDockX = -tuckPx
+            val rightDockX = resources.displayMetrics.widthPixels - bubbleContainerPx + tuckPx
 
             val initialX = rightDockX
             val initialY = (resources.displayMetrics.heightPixels * 0.45f).toInt()
 
             var savedBubbleX = initialX
             var savedBubbleY = initialY
+            var accumulatedX = initialX.toFloat()
+            var accumulatedY = initialY.toFloat()
             var snapAnimator: ValueAnimator? = null
+
+            val minY = (48 * density).toInt()
+            val maxY = resources.displayMetrics.heightPixels - bubbleContainerPx - (48 * density).toInt()
 
             val layoutParams = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT,
@@ -121,8 +128,8 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                         WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED,
                 PixelFormat.TRANSLUCENT
             ).apply {
-                gravity = Gravity.TOP or Gravity.END
-                x = leftDockX
+                gravity = Gravity.TOP or Gravity.START
+                x = initialX
                 y = initialY
             }
             overlayLayoutParams = layoutParams
@@ -137,6 +144,7 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                 setContent {
                     val currentConn by manager.playerConnectionFlow.collectAsState()
                     var bubbleAnchorState by remember { mutableStateOf(Pair(initialX.toFloat(), initialY.toFloat())) }
+                    val calloutMaxWidthPx = (270 * density).toInt()
 
                     echomusicTheme {
                         CompositionLocalProvider(
@@ -147,20 +155,47 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                                 navController = null,
                                 isOverlayMode = true,
                                 bubbleAnchorPosition = bubbleAnchorState,
-                                onCalloutVisibilityChanged = { _ ->
-                                    // Intentionally no-op: The floating bubble remains permanently anchored to the screen edge.
-                                    // The speech callout expands naturally beside it without moving the floating bubble icon.
+                                onCalloutVisibilityChanged = { visible ->
+                                    val params = overlayLayoutParams ?: return@FloatingChatBubble
+                                    val wm = windowManager ?: return@FloatingChatBubble
+                                    if (params.width == WindowManager.LayoutParams.MATCH_PARENT) {
+                                        // Modal is expanded, ignore callout resize
+                                        return@FloatingChatBubble
+                                    }
+                                    val isRight = savedBubbleX + (bubbleContainerPx / 2) >= resources.displayMetrics.widthPixels / 2
+                                    if (visible) {
+                                        if (isRight) {
+                                            // Anchor bubble on the right edge, expand window to the left
+                                            val targetX = (savedBubbleX - calloutMaxWidthPx).coerceAtLeast(0)
+                                            params.x = targetX
+                                            params.width = (savedBubbleX + bubbleContainerPx) - targetX
+                                        } else {
+                                            // Anchor bubble on the left edge, expand window to the right
+                                            params.x = savedBubbleX
+                                            params.width = bubbleContainerPx + calloutMaxWidthPx
+                                        }
+                                    } else {
+                                        // Restore window to strictly cover the bubble
+                                        params.x = savedBubbleX
+                                        params.width = WindowManager.LayoutParams.WRAP_CONTENT
+                                    }
+                                    try {
+                                        wm.updateViewLayout(view, params)
+                                    } catch (e: Exception) {
+                                        Timber.tag("OverlayService").e(e, "Error updating callout overlay bounds")
+                                    }
                                 },
                                 onOverlayDrag = { dx, dy ->
                                     snapAnimator?.cancel()
                                     val params = overlayLayoutParams ?: return@FloatingChatBubble
                                     val wm = windowManager ?: return@FloatingChatBubble
-                                    if (params.gravity != (Gravity.TOP or Gravity.START)) {
-                                        params.gravity = Gravity.TOP or Gravity.START
-                                        params.x = savedBubbleX
-                                    }
-                                    params.x = (params.x + dx.toInt()).coerceIn(leftDockX, rightDockX)
-                                    params.y = (params.y + dy.toInt()).coerceIn((50 * density).toInt(), resources.displayMetrics.heightPixels - (100 * density).toInt())
+
+                                    accumulatedX += dx
+                                    accumulatedY += dy
+
+                                    params.gravity = Gravity.TOP or Gravity.START
+                                    params.x = kotlin.math.round(accumulatedX).toInt().coerceIn(leftDockX, rightDockX)
+                                    params.y = kotlin.math.round(accumulatedY).toInt().coerceIn(minY, maxY)
                                     savedBubbleX = params.x
                                     savedBubbleY = params.y
                                     bubbleAnchorState = Pair(savedBubbleX.toFloat(), savedBubbleY.toFloat())
@@ -173,17 +208,19 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                                 onOverlayDragEnd = {
                                     val params = overlayLayoutParams ?: return@FloatingChatBubble
                                     val wm = windowManager ?: return@FloatingChatBubble
-                                    val isRight = params.x >= resources.displayMetrics.widthPixels / 2
+                                    val isRight = params.x + (bubbleContainerPx / 2) >= resources.displayMetrics.widthPixels / 2
                                     val snapTargetX = if (isRight) rightDockX else leftDockX
-                                    
+
                                     snapAnimator?.cancel()
                                     val startX = params.x
                                     snapAnimator = ValueAnimator.ofInt(startX, snapTargetX).apply {
-                                        duration = 320L
-                                        interpolator = OvershootInterpolator(1.35f)
+                                        duration = 260L
+                                        interpolator = android.view.animation.DecelerateInterpolator(1.6f)
                                         addUpdateListener { anim ->
-                                            params.x = anim.animatedValue as Int
-                                            savedBubbleX = params.x
+                                            val currX = (anim.animatedValue as Int).coerceIn(leftDockX, rightDockX)
+                                            params.x = currX
+                                            accumulatedX = currX.toFloat()
+                                            savedBubbleX = currX
                                             bubbleAnchorState = Pair(savedBubbleX.toFloat(), savedBubbleY.toFloat())
                                             try {
                                                 wm.updateViewLayout(view, params)
@@ -191,13 +228,8 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                                         }
                                         addListener(object : android.animation.AnimatorListenerAdapter() {
                                             override fun onAnimationEnd(animation: android.animation.Animator) {
-                                                if (isRight) {
-                                                    params.gravity = Gravity.TOP or Gravity.END
-                                                    params.x = leftDockX
-                                                } else {
-                                                    params.gravity = Gravity.TOP or Gravity.START
-                                                    params.x = leftDockX
-                                                }
+                                                params.x = snapTargetX
+                                                accumulatedX = snapTargetX.toFloat()
                                                 savedBubbleX = snapTargetX
                                                 bubbleAnchorState = Pair(savedBubbleX.toFloat(), savedBubbleY.toFloat())
                                                 try {
@@ -241,15 +273,11 @@ class ListenTogetherOverlayService : Service(), LifecycleOwner, SavedStateRegist
                                             }
                                             params.flags = params.flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
                                             params.dimAmount = 0f
-                                            val isRight = savedBubbleX >= resources.displayMetrics.widthPixels / 2
-                                            if (isRight) {
-                                                params.gravity = Gravity.TOP or Gravity.END
-                                                params.x = leftDockX
-                                            } else {
-                                                params.gravity = Gravity.TOP or Gravity.START
-                                                params.x = leftDockX
-                                            }
+                                            params.gravity = Gravity.TOP or Gravity.START
+                                            params.x = savedBubbleX
                                             params.y = savedBubbleY
+                                            accumulatedX = savedBubbleX.toFloat()
+                                            accumulatedY = savedBubbleY.toFloat()
                                         }
                                         wm.updateViewLayout(view, params)
                                     } catch (e: Exception) {

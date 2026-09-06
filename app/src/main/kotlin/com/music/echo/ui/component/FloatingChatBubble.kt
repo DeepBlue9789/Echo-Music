@@ -263,13 +263,15 @@ fun FloatingChatBubble(
         "large" -> 66.dp
         else -> 56.dp
     }
+    // Strict constant bubble container size that NEVER changes whether playing, paused, or callout
+    val bubbleContainerSize = bubbleDiameter + 16.dp
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
     val edgePaddingPx = with(density) { 16.dp.toPx() }
 
-    val leftDockX = - with(density) { (bubbleDiameter * 0.25f).toPx() }
-    val rightDockX = screenWidthPx - with(density) { (bubbleDiameter * 0.75f).toPx() }
+    val leftDockX = - with(density) { (bubbleContainerSize * 0.20f).toPx() }
+    val rightDockX = screenWidthPx - with(density) { (bubbleContainerSize * 0.80f).toPx() }
 
     val initialDockX = rightDockX
     val offsetX = remember { Animatable(initialDockX) }
@@ -492,7 +494,7 @@ fun FloatingChatBubble(
     )
 
     Box(
-        modifier = if (isOverlayMode && !showModal) Modifier.wrapContentSize() else modifier.fillMaxSize()
+        modifier = if (isOverlayMode && !showModal) Modifier.wrapContentSize(if (isOnRightSide) Alignment.CenterEnd else Alignment.CenterStart) else modifier.fillMaxSize()
     ) {
         // Bottom Dismiss Target Zone while dragging (in-app only)
         if (!isOverlayMode) {
@@ -538,7 +540,7 @@ fun FloatingChatBubble(
                     }
                     .then(
                         if (isOverlayMode) {
-                            Modifier.wrapContentSize()
+                            Modifier.wrapContentSize(if (isOnRightSide) Alignment.CenterEnd else Alignment.CenterStart)
                         } else {
                             Modifier.layout { measurable, constraints ->
                                 val placeable = measurable.measure(constraints)
@@ -549,7 +551,7 @@ fun FloatingChatBubble(
                                         screenHeightPx - 100.dp.toPx()
                                     )
                                     val x = if (isOnRightSide) {
-                                        (clampedX - (placeable.width - bubbleDiameter.toPx())).roundToInt()
+                                        (clampedX - (placeable.width - bubbleContainerSize.toPx())).roundToInt()
                                     } else {
                                         clampedX.roundToInt()
                                     }
@@ -561,7 +563,10 @@ fun FloatingChatBubble(
                     .pointerInput(isOverlayMode) {
                         if (isOverlayMode) {
                             detectDragGestures(
-                                onDragStart = { isDragging = true },
+                                onDragStart = {
+                                    isDragging = true
+                                    isCalloutShowing = false
+                                },
                                 onDragEnd = {
                                     isDragging = false
                                     coroutineScope.launch {
@@ -663,6 +668,7 @@ fun FloatingChatBubble(
                         }
                         CircularFloatingBubble(
                             bubbleDiameter = bubbleDiameter,
+                            bubbleContainerSize = bubbleContainerSize,
                             dragScale = dragScale,
                             dragTilt = dragTilt.value,
                             squashScaleX = squashScaleX.value,
@@ -689,6 +695,7 @@ fun FloatingChatBubble(
                     } else {
                         CircularFloatingBubble(
                             bubbleDiameter = bubbleDiameter,
+                            bubbleContainerSize = bubbleContainerSize,
                             dragScale = dragScale,
                             dragTilt = dragTilt.value,
                             squashScaleX = squashScaleX.value,
@@ -1950,6 +1957,7 @@ private fun UserChatMessageBubble(
 @Composable
 private fun CircularFloatingBubble(
     bubbleDiameter: androidx.compose.ui.unit.Dp,
+    bubbleContainerSize: androidx.compose.ui.unit.Dp = bubbleDiameter + 16.dp,
     dragScale: Float,
     dragTilt: Float = 0f,
     squashScaleX: Float = 1f,
@@ -1970,15 +1978,14 @@ private fun CircularFloatingBubble(
 ) {
     Box(
         modifier = Modifier
-            .wrapContentSize()
-            .padding(8.dp),
+            .size(bubbleContainerSize),
         contentAlignment = Alignment.Center
     ) {
-        // Audio breathing halo behind bubble
+        // Audio breathing halo behind bubble (stays within fixed container bounds and breathes purely via graphicsLayer)
         if (isPlaying && bubbleHaloPref) {
             Box(
                 modifier = Modifier
-                    .size(bubbleDiameter * 1.35f)
+                    .size(bubbleDiameter * 1.25f)
                     .graphicsLayer {
                         scaleX = audioHaloScale
                         scaleY = audioHaloScale

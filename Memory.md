@@ -82,17 +82,21 @@ Instead of hard seeking which causes audible audio cutouts, follower devices use
 
 ## 4. Floating Circular Chat Bubble & Overlay Service
 
-### A. Edge Coordinate Anchoring (`Gravity.END` & Zero-Movement Previews)
-- **Problem**: Previously, incoming message previews caused the floating bubble icon to jump away from the screen edge because WindowManager coordinates were shifted by a hardcoded 226dp offset.
+### A. Unified Edge Coordinate Anchoring (`Gravity.START`, Constant Containers & Zero-Movement Previews)
+- **Problem**: Previously, incoming message previews and play/pause audio halo toggles caused the floating bubble icon to jump or jitter because:
+  1. `CircularFloatingBubble` altered its layout dimensions from 72dp to 92dp when playback started/paused.
+  2. WindowManager was flipping between `Gravity.START` and `Gravity.END`, causing coordinate jumps and out-of-bounds positioning.
+  3. Overlay window was resizing continuously on every frame of Compose's speech callout animation, leading to SurfaceFlinger/IPC frame lag.
 - **Solution**:
-  - In `ListenTogetherOverlayService.kt`, when docked on the right side, `params.gravity` is set to `Gravity.TOP or Gravity.END` with a fixed screen margin `x = leftDockX`.
-  - When an incoming message arrives, the window naturally expands to the left while the circular bubble at `Alignment.CenterEnd` remains 100% stationary at the edge of the screen.
-  - Removed `params.x` shifting from `onCalloutVisibilityChanged`.
+  - **Strict Constant Container Size**: `CircularFloatingBubble` uses a fixed `bubbleContainerSize = bubbleDiameter + 16.dp` with centered alignment. The audio halo breathes purely via `graphicsLayer` without altering layout dimensions, guaranteeing 0.0px movement on play/pause.
+  - **Permanent Consistent Gravity (`Gravity.TOP or Gravity.START`)**: Eliminated gravity flipping entirely. `params.x` and `params.y` represent absolute screen coordinates, preventing gesture delta jumps.
+  - **Stable Callout Bounds**: On incoming message previews, the window bounds are updated once: expanding to `savedBubbleX - calloutSpacePx` on the right side while pinning the bubble at `Alignment.CenterEnd`. The bubble remains 100% stationary (`x = savedBubbleX`).
+  - **Bounded Repositioning Drag**: Replaced `OvershootInterpolator` with `DecelerateInterpolator(1.6f)` and enforced strict clamping (`leftDockX` to `rightDockX`, `minY` to `maxY`) on every tick. Drag gestures dismiss callouts instantly, ensuring only the compact circular bubble is moved.
 - **In-App Compose Coordinate Locking**:
-  - In `FloatingChatBubble.kt`, replaced `Modifier.offset` with `Modifier.layout`:
+  - In `FloatingChatBubble.kt`, using `Modifier.layout`:
     ```kotlin
     val x = if (isOnRightSide) {
-        (clampedX - (placeable.width - bubbleDiameter.toPx())).roundToInt()
+        (clampedX - (placeable.width - bubbleContainerSize.toPx())).roundToInt()
     } else {
         clampedX.roundToInt()
     }
