@@ -410,4 +410,24 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
    - Added `git add -A` after `git checkout --ours .` in the fallback conflict handler.
    - Added `git diff-index --quiet HEAD --` safety check before `git commit` to prevent empty-commit failures.
 
+---
+
+## 14. CodeQL CI Pipeline OOM Resolution & Build Variant Optimization
+
+### A. Problem & Root Cause
+- **Failure**: Workflow run `CodeQL` (`.github/workflows/codeql.yml`) failed on step `Perform CodeQL Analysis` after running for ~35 minutes (`35m 10s`).
+- **Root Cause**:
+  1. `assembleDebug` was compiling **12 full APK variants** (4 ABIs: `arm64`, `armv7`, `x86_64`, `universal` $\times$ 3 flavors: `foss`, `gms`, `direct`), taking 34 minutes under CodeQL instrumentation and building an enormous, redundant multi-gigabyte AST database.
+  2. The Gradle build ran with a background daemon enabled, leaving a lingering `java` process consuming ~3 GB of runner RAM.
+  3. When `github/codeql-action/analyze` executed the 80 query suites, total memory exceeded the GitHub-hosted runner limit (7 GB RAM), causing the Linux kernel OOM killer to terminate the orphan processes (`Terminate orphan process: pid (3135) (java)`).
+
+### B. Resolution
+1. **Single Comprehensive Variant**:
+   - Switched compilation task from `./gradlew assembleDebug` to `./gradlew assembleUniversalGmsDebug --no-daemon`.
+   - `assembleUniversalGmsDebug` compiles all application code across `:app` and all library modules (`:core`, `:innertube`, `:jiosaavn`, `:playback`, `:canvas`, etc.) once, cutting build time from ~34 minutes down to ~4 minutes.
+2. **Daemon Termination**:
+   - Added `./gradlew --stop` immediately after compilation to completely release all heap memory held by Gradle workers before CodeQL analysis starts.
+3. **Resource Constraints**:
+   - Added `ram: 5120` to both `init` and `analyze` steps, and set `threads: 2` in `github/codeql-action/analyze@v3` to prevent memory spikes and disk-thrashing OOMs.
+
 
