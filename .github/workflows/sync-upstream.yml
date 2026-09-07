@@ -83,13 +83,19 @@ jobs:
           git merge upstream/main --no-commit --no-ff || {
             echo "Conflict detected during merge. Resolving with fork preference for conflicting files..."
             git checkout --ours .
+            git add -A
           }
           # Retain fork workflows to prevent GITHUB_TOKEN workflow modification rejection
           git rm -rf --cached .github/workflows/
           git checkout HEAD -- .github/workflows/
           git clean -fd .github/workflows/
-          git commit -m "Sync upstream Echo-Music changes into fork"
-          git push origin main
+          git add -A
+          if ! git diff-index --quiet HEAD --; then
+            git commit -m "Sync upstream Echo-Music changes into fork"
+            git push origin main
+          else
+            echo "No changes to commit."
+          fi
 
       - name: Determine Target Release Tag
         id: determine_tag

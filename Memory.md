@@ -384,3 +384,30 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 3. **Upstream Sync Protection**:
    - Verified `.github/workflows/sync-upstream.yml` retains fork workflows (`git checkout HEAD -- .github/workflows/`) during automated upstream sync merges, ensuring CI workflow stability without merge conflicts.
 
+---
+
+## 13. Upstream Release v1.2.5 Synchronization & CI Auto-Recovery
+
+### A. CI Workflow Failure #32 Root Cause
+- **Trigger**: Upstream released **v1.2.5** (`versionCode = 155`, `versionName = "1.2.5"`). The scheduled GitHub Actions sync workflow (`sync-upstream.yml`) detected new commits and executed `git merge upstream/main --no-commit --no-ff`.
+- **Merge Conflicts**:
+  1. `MainActivity.kt`: Upstream added `WhatsNewDialog` and moved update dialogs; our fork contains in-app `UpdateAvailableDialog` with `navController` routing.
+  2. `DownloadUtil.kt`: Upstream wrapped downloads in `CacheDataSource` (to stream from `playerCache`); our fork has custom `JioSaavnDns` Akamai edge resolution.
+- **Unresolved Staging Bug in CI**: The workflow's conflict resolution block ran `git checkout --ours .`, but lacked `git add -A` to mark the conflicts as resolved in git's index. As a result, `git commit` aborted with exit code 128:
+  ```
+  error: Committing is not possible because you have unmerged files.
+  fatal: Exiting because of an unresolved conflict.
+  ```
+
+### B. Merge Harmonization & Enhancements
+1. **MainActivity Dialog Layout**:
+   - Integrated both `UpdateAvailableDialog` (with `navController.navigate("update")`) and `WhatsNewDialog` inside `BoxWithConstraints` within `echomusicTheme`.
+2. **Download Stream Cache + JioSaavn DNS**:
+   - Combined upstream's `CacheDataSource.Factory().setCache(playerCache)` with our fork's resilient `JioSaavnDns` Akamai edge IP lookup and DoH fallback, maintaining both player cache reuse and resilient 320 kbps downloads.
+3. **WhatsNew In-App Changelog Compatibility**:
+   - Updated `fetchChangelogForVersion` in `echomusicupdater.kt` to inspect `DeepBlue9789/Echo-Music/releases` before falling back to `EchoMusicApp/Echo-Music`, ensuring release changelogs and notes load seamlessly on fork builds.
+4. **CI Workflow Hardening (`sync-upstream.yml`)**:
+   - Added `git add -A` after `git checkout --ours .` in the fallback conflict handler.
+   - Added `git diff-index --quiet HEAD --` safety check before `git commit` to prevent empty-commit failures.
+
+
