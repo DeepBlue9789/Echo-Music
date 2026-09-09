@@ -77,7 +77,7 @@ Echo Music delivers a seamless, premium listening experience by leveraging YouTu
 > - **Data Saver Mode (Beta)** — Automatically reduces data usage during playback for limited connections.
 > - **Settings Search Index** — Quickly find and navigate to any settings option instantly.
 > - **Redesigned UI** — Cleaner, faster, and more intuitive interface from the ground up.
-> - **Import from Spotify** — Bring your playlists and tracks over with ease.
+> - **Import & Sync from Spotify** — Bring your playlists over with ease and keep them up-to-date with one-tap Fast Sync.
 > - **Listen Together** — Sync music in real time, similar to Spotify Jam.
 > - **Podcast Support** — Listen to podcasts alongside your music library.
 > - **Local Media Support** — Play music files stored directly on your device.
@@ -243,7 +243,7 @@ Without the support of this incredible open-source community, none of this would
 
 <!-- readme: contributors -start -->
 <table>
-<tr><td align="center"><a href="https://github.com/iad1tya"><img src="https://avatars.githubusercontent.com/u/147871321?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/kaunkrishna"><img src="https://avatars.githubusercontent.com/u/270065466?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/soumya-99"><img src="https://avatars.githubusercontent.com/u/59480692?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/VardhmanSurana"><img src="https://avatars.githubusercontent.com/u/100058534?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/mdakashhossain1"><img src="https://avatars.githubusercontent.com/u/85729564?v=4" width="60" height="60" /></a></td></tr>
+<tr><td align="center"><a href="https://github.com/iad1tya"><img src="https://avatars.githubusercontent.com/u/147871321?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/mdakashhossain1"><img src="https://avatars.githubusercontent.com/u/85729564?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/soumya-99"><img src="https://avatars.githubusercontent.com/u/59480692?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/kaunkrishna"><img src="https://avatars.githubusercontent.com/u/270065466?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/VardhmanSurana"><img src="https://avatars.githubusercontent.com/u/100058534?v=4" width="60" height="60" /></a></td></tr>
 </table>
 <!-- readme: contributors -end -->
 

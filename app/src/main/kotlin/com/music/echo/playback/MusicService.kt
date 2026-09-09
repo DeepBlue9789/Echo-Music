@@ -1013,6 +1013,7 @@ class MusicService :
                                 playQueue(
                                     queue = restoredQueue,
                                     playWhenReady = false,
+                                    restoredShuffledIndices = queue.shuffledIndices,
                                 )
                             }
                         }
@@ -1494,6 +1495,7 @@ class MusicService :
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
+        restoredShuffledIndices: List<Int>? = null,
     ) {
         if (!scope.isActive) scope = CoroutineScope(Dispatchers.Main) + Job()
 
@@ -1502,7 +1504,7 @@ class MusicService :
             Timber.tag(TAG).w("playQueue called before player initialization, queuing request")
             scope.launch {
                 playerInitialized.first { it }
-                playQueue(queue, playWhenReady)
+                playQueue(queue, playWhenReady, restoredShuffledIndices)
             }
             return
         }
@@ -1561,8 +1563,12 @@ class MusicService :
 
             
             if (player.shuffleModeEnabled) {
-                val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
-                applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
+                if (restoredShuffledIndices != null && restoredShuffledIndices.size == player.mediaItemCount) {
+                    player.setShuffleOrder(androidx.media3.exoplayer.source.ShuffleOrder.DefaultShuffleOrder(restoredShuffledIndices.toIntArray(), System.currentTimeMillis()))
+                } else {
+                    val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+                    applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
+                }
             }
         }
     }
@@ -1961,18 +1967,6 @@ class MusicService :
             return
         }
 
-        
-        if (loudnessEnhancer == null) {
-            try {
-                loudnessEnhancer = LoudnessEnhancer(audioSessionId)
-                Timber.tag(TAG).d("LoudnessEnhancer created for sessionId=$audioSessionId")
-            } catch (e: Exception) {
-                reportException(e)
-                loudnessEnhancer = null
-                return
-            }
-        }
-
         scope.launch {
             try {
                 val currentMediaId = withContext(Dispatchers.Main) {
@@ -2009,6 +2003,15 @@ class MusicService :
 
                         if (clampedGain != 0) {
                             Timber.tag(TAG).d("Calculated gain: $targetGain mB (normalization: $normalizationGain, preset: $presetOffsetMb)")
+                            if (loudnessEnhancer == null) {
+                                try {
+                                    loudnessEnhancer = LoudnessEnhancer(audioSessionId)
+                                    Timber.tag(TAG).d("LoudnessEnhancer created for sessionId=$audioSessionId")
+                                } catch (e: Exception) {
+                                    reportException(e)
+                                    loudnessEnhancer = null
+                                }
+                            }
                             try {
                                 loudnessEnhancer?.setTargetGain(clampedGain)
                                 loudnessEnhancer?.enabled = true
@@ -2019,13 +2022,14 @@ class MusicService :
                                 releaseLoudnessEnhancer()
                             }
                         } else {
-                            loudnessEnhancer?.enabled = false
+                            Timber.tag(TAG).d("Target gain is 0 mB, releasing LoudnessEnhancer completely")
+                            releaseLoudnessEnhancer()
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
-                        loudnessEnhancer?.enabled = false
-                        Timber.tag(TAG).d("setupLoudnessEnhancer: mediaId unavailable")
+                        Timber.tag(TAG).d("setupLoudnessEnhancer: mediaId unavailable, releasing LoudnessEnhancer")
+                        releaseLoudnessEnhancer()
                     }
                 }
             } catch (e: Exception) {
@@ -3314,12 +3318,23 @@ class MusicService :
 
         try {
             
+            val timeline = player.currentTimeline
+            val shuffledIndicesList = if (!timeline.isEmpty && player.shuffleModeEnabled) {
+                val indices = mutableListOf<Int>()
+                var index = timeline.getFirstWindowIndex(true)
+                while (index != androidx.media3.common.C.INDEX_UNSET) {
+                    indices.add(index)
+                    index = timeline.getNextWindowIndex(index, androidx.media3.common.Player.REPEAT_MODE_OFF, true)
+                }
+                indices
+            } else null
+
             val persistQueue = currentQueue.toPersistQueue(
                 title = queueTitle,
                 items = player.mediaItems.mapNotNull { it.metadata },
                 mediaItemIndex = player.currentMediaItemIndex,
                 position = player.currentPosition
-            )
+            ).copy(shuffledIndices = shuffledIndicesList)
 
             val persistAutomix =
                 PersistQueue(
@@ -4102,7 +4117,7 @@ class MusicService :
                     try {
                         if (isPlaying) {
                             fadingPlayer?.play()
-                        } else {
+                        } else if (!player.playWhenReady || player.playbackSuppressionReason != androidx.media3.common.Player.PLAYBACK_SUPPRESSION_REASON_NONE) {
                             fadingPlayer?.pause()
                         }
                     } catch (e: Exception) {
@@ -4197,6 +4212,11 @@ class MusicService :
                         delay(100)
                     }
 
+                    if (fadingPlayer?.playbackState == androidx.media3.common.Player.STATE_ENDED || fadingPlayer?.playbackState == androidx.media3.common.Player.STATE_IDLE) {
+                        player.volume = startVolume
+                        break
+                    }
+
                     val progress = i / steps.toFloat()
                     // Fade-out then fade-in with a gentle dip: the outgoing track drops away
                     // over the first ~60% of the blend, the incoming rises over the last ~60%,
@@ -4271,7 +4291,7 @@ class MusicService :
         const val PERSISTENT_QUEUE_FILE = "persistent_queue.data"
         const val PERSISTENT_AUTOMIX_FILE = "persistent_automix.data"
         /** How far ahead of the crossfade trigger to start buffering the incoming track. */
-        const val PREBUFFER_LEAD_MS = 3000L
+        const val PREBUFFER_LEAD_MS = 10000L
         const val PERSISTENT_PLAYER_STATE_FILE = "persistent_player_state.data"
         const val MAX_CONSECUTIVE_ERR = 5
         const val MAX_RETRY_COUNT = 10
