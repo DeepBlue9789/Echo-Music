@@ -456,7 +456,7 @@ fun ListenTogetherScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
@@ -470,7 +470,7 @@ fun ListenTogetherScreen(
                             text = "How it Works",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         
                         InstructionStep(
@@ -522,7 +522,7 @@ fun ListenTogetherScreen(
                             .padding(end = 16.dp)
                             .size(20.dp),
                         strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
@@ -564,7 +564,7 @@ private fun NotConfiguredContent() {
             Icon(
                 painter = painterResource(R.drawable.group),
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
+                tint = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.size(64.dp)
             )
             Spacer(modifier = Modifier.height(16.dp))
@@ -572,7 +572,7 @@ private fun NotConfiguredContent() {
                 text = stringResource(R.string.listen_together),
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
@@ -605,7 +605,7 @@ private fun ConnectionStatusCard(
             ),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -624,7 +624,7 @@ private fun ConnectionStatusCard(
                         .clip(CircleShape)
                         .background(
                             color = when (connectionState) {
-                                ConnectionState.CONNECTED -> MaterialTheme.colorScheme.primary
+                                ConnectionState.CONNECTED -> MaterialTheme.colorScheme.onSurface
                                 ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> MaterialTheme.colorScheme.tertiary
                                 ConnectionState.ERROR -> MaterialTheme.colorScheme.error
                                 ConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.outline
@@ -643,7 +643,7 @@ private fun ConnectionStatusCard(
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = when (connectionState) {
-                        ConnectionState.CONNECTED -> MaterialTheme.colorScheme.primary
+                        ConnectionState.CONNECTED -> MaterialTheme.colorScheme.onSurface
                         ConnectionState.CONNECTING, ConnectionState.RECONNECTING -> MaterialTheme.colorScheme.tertiary
                         ConnectionState.ERROR -> MaterialTheme.colorScheme.error
                         ConnectionState.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
@@ -657,7 +657,7 @@ private fun ConnectionStatusCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(8.dp)),
-                    color = MaterialTheme.colorScheme.primary
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
@@ -673,7 +673,7 @@ private fun ConnectionStatusCard(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
+                            containerColor = MaterialTheme.colorScheme.onSurface
                         )
                     ) {
                         Icon(
@@ -690,7 +690,7 @@ private fun ConnectionStatusCard(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
+                            containerColor = MaterialTheme.colorScheme.onSurface
                         )
                     ) {
                         Text(stringResource(R.string.disconnect), fontWeight = FontWeight.SemiBold)
@@ -721,7 +721,7 @@ private fun RoomStatusCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -741,7 +741,7 @@ private fun RoomStatusCard(
             Text(
                 text = roomCode,
                 style = MaterialTheme.typography.displaySmall,
-                color = MaterialTheme.colorScheme.primary,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 6.sp,
                 textAlign = TextAlign.Center
@@ -840,7 +840,7 @@ private fun ConnectedUsersSection(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -851,7 +851,7 @@ private fun ConnectedUsersSection(
                 text = "${stringResource(R.string.connected_users)} (${users.size})",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -894,8 +894,8 @@ private fun UserAvatar(
                 modifier = Modifier.size(56.dp),
                 shape = CircleShape,
                 color = when {
-                    user.isHost -> MaterialTheme.colorScheme.primary
-                    isCurrentUser -> MaterialTheme.colorScheme.secondary
+                    user.isHost -> MaterialTheme.colorScheme.onSurface
+                    isCurrentUser -> MaterialTheme.colorScheme.surfaceContainerHigh
                     else -> MaterialTheme.colorScheme.surfaceVariant
                 }
             ) {
@@ -908,8 +908,8 @@ private fun UserAvatar(
                         style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold,
                         color = when {
-                            user.isHost -> MaterialTheme.colorScheme.onPrimary
-                            isCurrentUser -> MaterialTheme.colorScheme.onSecondary
+                            user.isHost -> MaterialTheme.colorScheme.surface
+                            isCurrentUser -> MaterialTheme.colorScheme.onSurface
                             else -> MaterialTheme.colorScheme.onSurfaceVariant
                         }
                     )
@@ -923,7 +923,7 @@ private fun UserAvatar(
                         .offset(x = 4.dp, y = 4.dp)
                         .size(20.dp),
                     shape = CircleShape,
-                    color = if (user.isHost) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                    color = if (user.isHost) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
@@ -934,7 +934,7 @@ private fun UserAvatar(
                                 if (user.isHost) R.drawable.crown else R.drawable.person
                             ),
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
+                            tint = MaterialTheme.colorScheme.surface,
                             modifier = Modifier.size(12.dp)
                         )
                     }
@@ -948,7 +948,7 @@ private fun UserAvatar(
             text = user.username,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (isCurrentUser) FontWeight.Bold else FontWeight.Medium,
-            color = if (user.isHost) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+            color = if (user.isHost) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center
@@ -958,13 +958,13 @@ private fun UserAvatar(
             Text(
                 text = stringResource(R.string.host_label),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
             )
         } else if (isCurrentUser) {
             Text(
                 text = stringResource(R.string.you_label),
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -980,7 +980,7 @@ private fun PendingJoinRequestsSection(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -991,7 +991,7 @@ private fun PendingJoinRequestsSection(
                 text = stringResource(R.string.listen_together_join_requests),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1005,7 +1005,7 @@ private fun PendingJoinRequestsSection(
                     Surface(
                         modifier = Modifier.size(40.dp),
                         shape = CircleShape,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
@@ -1015,7 +1015,7 @@ private fun PendingJoinRequestsSection(
                                 text = request.username.take(1).uppercase(),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondary
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
                     }
@@ -1030,7 +1030,7 @@ private fun PendingJoinRequestsSection(
                         Icon(
                             painter = painterResource(R.drawable.check),
                             contentDescription = stringResource(R.string.approve),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -1058,7 +1058,7 @@ private fun PendingSuggestionsSection(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -1069,7 +1069,7 @@ private fun PendingSuggestionsSection(
                 text = stringResource(R.string.pending_suggestions),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary
+                color = MaterialTheme.colorScheme.onSurface
             )
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -1083,7 +1083,7 @@ private fun PendingSuggestionsSection(
                     Icon(
                         painter = painterResource(R.drawable.queue_music),
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(Modifier.width(12.dp))
@@ -1107,7 +1107,7 @@ private fun PendingSuggestionsSection(
                         Icon(
                             painter = painterResource(R.drawable.check),
                             contentDescription = stringResource(R.string.approve),
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -1147,7 +1147,7 @@ private fun JoinCreateRoomSection(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
@@ -1170,8 +1170,8 @@ private fun JoinCreateRoomSection(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedTab == 0) MaterialTheme.colorScheme.primary else Color.Transparent,
-                        contentColor = if (selectedTab == 0) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                        containerColor = if (selectedTab == 0) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                        contentColor = if (selectedTab == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                 ) {
@@ -1188,8 +1188,8 @@ private fun JoinCreateRoomSection(
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = if (selectedTab == 1) MaterialTheme.colorScheme.tertiary else Color.Transparent,
-                        contentColor = if (selectedTab == 1) MaterialTheme.colorScheme.onTertiary else MaterialTheme.colorScheme.onSurfaceVariant
+                        containerColor = if (selectedTab == 1) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                        contentColor = if (selectedTab == 1) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp)
                 ) {
@@ -1212,7 +1212,7 @@ private fun JoinCreateRoomSection(
                     Icon(
                         painterResource(R.drawable.person),
                         null,
-                        tint = MaterialTheme.colorScheme.primary
+                        tint = MaterialTheme.colorScheme.onSurface
                     )
                 },
                 trailingIcon = {
@@ -1225,7 +1225,7 @@ private fun JoinCreateRoomSection(
                 singleLine = true,
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    focusedBorderColor = MaterialTheme.colorScheme.onSurface,
                     unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                     focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                     unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -1249,7 +1249,7 @@ private fun JoinCreateRoomSection(
                         Icon(
                             painterResource(R.drawable.group),
                             null,
-                            tint = MaterialTheme.colorScheme.primary
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     },
                     trailingIcon = {
@@ -1262,7 +1262,7 @@ private fun JoinCreateRoomSection(
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        focusedBorderColor = MaterialTheme.colorScheme.onSurface,
                         unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLow
@@ -1282,7 +1282,7 @@ private fun JoinCreateRoomSection(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1294,13 +1294,13 @@ private fun JoinCreateRoomSection(
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
                             strokeWidth = 2.dp,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
                             text = waitingForApprovalText,
                             style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            color = MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Medium,
                             textAlign = TextAlign.Center
                         )
@@ -1353,7 +1353,7 @@ private fun JoinCreateRoomSection(
                     enabled = hasUsername && !isCreatingRoom && !isJoiningRoom,
                     shape = RoundedCornerShape(16.dp),
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
+                        containerColor = MaterialTheme.colorScheme.onSurface
                     )
                 ) {
                     Icon(
@@ -1538,7 +1538,7 @@ private fun UserActionDialog(
                     .fillMaxWidth()
                     .clickable(onClick = onTransferOwnership),
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.primaryContainer
+                color = MaterialTheme.colorScheme.surfaceContainerHigh
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1547,7 +1547,7 @@ private fun UserActionDialog(
                     Icon(
                         painter = painterResource(R.drawable.crown),
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(24.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
@@ -1556,7 +1556,7 @@ private fun UserActionDialog(
                             text = stringResource(R.string.transfer_ownership),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.primary
+                            color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
                             text = stringResource(R.string.transfer_ownership_desc),

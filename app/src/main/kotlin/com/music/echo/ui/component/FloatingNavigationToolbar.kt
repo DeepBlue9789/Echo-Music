@@ -48,6 +48,8 @@ import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.FloatingToolbarScrollBehavior
 import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.Icon
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -81,6 +83,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import echo.music.iad1tya.R
 import echo.music.iad1tya.ui.screens.Screens
+import echo.music.iad1tya.ui.component.LocalGlassEffectConfig
+import echo.music.iad1tya.ui.component.isGlassSupported
+import echo.music.iad1tya.ui.component.liquidGlass
+import echo.music.iad1tya.ui.component.GlassComponent
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -105,10 +111,26 @@ fun FloatingNavigationToolbar(
     isSelected: (Screens) -> Boolean,
     onItemClick: (Screens, Boolean) -> Unit,
 ) {
-    val toolbarContainerColor = floatingToolbarContainerColor(pureBlack = pureBlack)
+    val glassConfig = LocalGlassEffectConfig.current
+    val useGlass = isGlassSupported()
+    
+    val denseGlassConfig = glassConfig.copy(
+        blurRadius = 64f,
+        surfaceOpacity = 0.5f,
+        surfaceTintColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface
+    )
+
+    val toolbarContainerColor = if (useGlass) Color.Transparent else (if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
     val toolbarColors = FloatingToolbarDefaults.standardFloatingToolbarColors(
         toolbarContainerColor = toolbarContainerColor,
     )
+    
+    val toolbarModifier = if (useGlass) {
+        Modifier.liquidGlass(config = denseGlassConfig, shape = RoundedCornerShape(percent = 50))
+    } else {
+        Modifier
+    }
+
     val hasOverflowMenu = (onShuffleClick != null && shuffleIconRes != null) || onMusicRecognitionClick != null
     val hasFabAction = onFabClick != null && fabIconRes != null
 
@@ -118,78 +140,32 @@ fun FloatingNavigationToolbar(
     ) {
         val showSelectedLabels = false
 
-        if (hasOverflowMenu) {
-            HorizontalFloatingToolbar(
-                expanded = true,
-                floatingActionButton = {
-                    FloatingToolbarOverflowMenuButton(
-                        pureBlack = pureBlack,
-                        onShuffleClick = onShuffleClick,
-                        shuffleEnabled = shuffleEnabled,
-                        shuffleIconRes = shuffleIconRes,
-                        onAiHubClick = onAiHubClick,
-                        aiHubIconRes = aiHubIconRes,
-                        aiHubContentDescription = aiHubContentDescription,
-                    )
-                },
-                modifier = Modifier.widthIn(max = 480.dp),
-                colors = toolbarColors,
-                scrollBehavior = scrollBehavior,
-                animationSpec = FloatingToolbarDefaults.animationSpec(),
-            ) {
-                ToolbarItemsContainer(
-                    items = items,
-                    pureBlack = pureBlack,
-                    showSelectedLabels = showSelectedLabels,
-                    onMusicRecognitionClick = onMusicRecognitionClick,
-                    musicRecognitionContentDescription = musicRecognitionContentDescription,
-                    isSelected = isSelected,
-                    onItemClick = onItemClick
-                )
-            }
-        } else if (hasFabAction) {
-            HorizontalFloatingToolbar(
-                expanded = true,
-                floatingActionButton = {
-                    FloatingToolbarFabAction(
-                        pureBlack = pureBlack,
-                        onClick = onFabClick,
-                        iconRes = fabIconRes,
-                        contentDescription = fabContentDescription,
-                    )
-                },
-                modifier = Modifier.widthIn(max = 480.dp),
-                colors = toolbarColors,
-                scrollBehavior = scrollBehavior,
-                animationSpec = FloatingToolbarDefaults.animationSpec(),
-            ) {
-                ToolbarItemsContainer(
-                    items = items,
-                    pureBlack = pureBlack,
-                    showSelectedLabels = showSelectedLabels,
-                    onMusicRecognitionClick = onMusicRecognitionClick,
-                    musicRecognitionContentDescription = musicRecognitionContentDescription,
-                    isSelected = isSelected,
-                    onItemClick = onItemClick
-                )
-            }
-        } else {
-            HorizontalFloatingToolbar(
-                expanded = true,
-                modifier = Modifier.widthIn(max = 420.dp),
-                colors = toolbarColors,
-                scrollBehavior = scrollBehavior,
-            ) {
-                ToolbarItemsContainer(
-                    items = items,
-                    pureBlack = pureBlack,
-                    showSelectedLabels = showSelectedLabels,
-                    onMusicRecognitionClick = onMusicRecognitionClick,
-                    musicRecognitionContentDescription = musicRecognitionContentDescription,
-                    isSelected = isSelected,
-                    onItemClick = onItemClick
-                )
-            }
+        HorizontalFloatingToolbar(
+            expanded = true,
+            modifier = Modifier.widthIn(max = 480.dp).then(toolbarModifier),
+            colors = toolbarColors,
+            scrollBehavior = scrollBehavior,
+        ) {
+            ToolbarItemsContainer(
+                items = items,
+                pureBlack = pureBlack,
+                showSelectedLabels = showSelectedLabels,
+                onMusicRecognitionClick = onMusicRecognitionClick,
+                musicRecognitionContentDescription = musicRecognitionContentDescription,
+                isSelected = isSelected,
+                onItemClick = onItemClick,
+                hasOverflowMenu = hasOverflowMenu,
+                onShuffleClick = onShuffleClick,
+                shuffleEnabled = shuffleEnabled,
+                shuffleIconRes = shuffleIconRes,
+                onAiHubClick = onAiHubClick,
+                aiHubIconRes = aiHubIconRes,
+                aiHubContentDescription = aiHubContentDescription,
+                hasFabAction = hasFabAction,
+                onFabClick = onFabClick,
+                fabIconRes = fabIconRes,
+                fabContentDescription = fabContentDescription
+            )
         }
     }
 }
@@ -202,7 +178,18 @@ private fun ToolbarItemsContainer(
     onMusicRecognitionClick: (() -> Unit)?,
     musicRecognitionContentDescription: String,
     isSelected: (Screens) -> Boolean,
-    onItemClick: (Screens, Boolean) -> Unit
+    onItemClick: (Screens, Boolean) -> Unit,
+    hasOverflowMenu: Boolean = false,
+    onShuffleClick: (() -> Unit)? = null,
+    shuffleEnabled: Boolean = false,
+    shuffleIconRes: Int? = null,
+    onAiHubClick: (() -> Unit)? = null,
+    aiHubIconRes: Int? = null,
+    aiHubContentDescription: String = "",
+    hasFabAction: Boolean = false,
+    onFabClick: (() -> Unit)? = null,
+    fabIconRes: Int? = null,
+    fabContentDescription: String = ""
 ) {
     val density = LocalDensity.current
     val itemWidths = remember { mutableStateMapOf<Screens, Dp>() }
@@ -270,6 +257,25 @@ private fun ToolbarItemsContainer(
                     }
                 )
             }
+            
+            if (hasOverflowMenu) {
+                FloatingToolbarOverflowMenuButton(
+                    pureBlack = pureBlack,
+                    onShuffleClick = onShuffleClick,
+                    shuffleEnabled = shuffleEnabled,
+                    shuffleIconRes = shuffleIconRes,
+                    onAiHubClick = onAiHubClick,
+                    aiHubIconRes = aiHubIconRes,
+                    aiHubContentDescription = aiHubContentDescription
+                )
+            } else if (hasFabAction && fabIconRes != null && onFabClick != null) {
+                FloatingToolbarFabAction(
+                    pureBlack = pureBlack,
+                    onClick = onFabClick,
+                    iconRes = fabIconRes,
+                    contentDescription = fabContentDescription
+                )
+            }
         }
     }
 }
@@ -290,17 +296,12 @@ fun FloatingToolbarOverflowMenuButton(
     val scope = rememberCoroutineScope()
 
     Box {
-        FloatingToolbarDefaults.VibrantFloatingActionButton(
+        FloatingNavigationToolbarActionItem(
+            iconRes = R.drawable.more_horiz,
+            contentDescription = stringResource(R.string.more_label),
+            pureBlack = pureBlack,
             onClick = { showSheet = true },
-            shape = CircleShape,
-            containerColor = floatingToolbarFabContainerColor(pureBlack = pureBlack),
-            contentColor = floatingToolbarFabContentColor(pureBlack = pureBlack),
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.more_horiz),
-                contentDescription = stringResource(R.string.more_label),
-            )
-        }
+        )
 
         if (showSheet) {
             ModalBottomSheet(
@@ -389,19 +390,12 @@ private fun FloatingToolbarFabAction(
 ) {
     if (onClick == null || iconRes == null) return
 
-    FloatingToolbarDefaults.VibrantFloatingActionButton(
-        onClick = onClick,
-        containerColor = floatingToolbarFabContainerColor(pureBlack = pureBlack),
-        contentColor = floatingToolbarFabContentColor(pureBlack = pureBlack),
-    ) {
-        Icon(
-            painter = painterResource(iconRes),
-            contentDescription =
-                contentDescription.ifEmpty {
-                    stringResource(R.string.create_playlist)
-                },
-        )
-    }
+    FloatingNavigationToolbarActionItem(
+        iconRes = iconRes,
+        contentDescription = contentDescription.ifEmpty { stringResource(R.string.create_playlist) },
+        pureBlack = pureBlack,
+        onClick = onClick
+    )
 }
 
 @Composable
@@ -541,22 +535,22 @@ private fun floatingToolbarContainerColor(pureBlack: Boolean): Color {
 
 @Composable
 private fun floatingToolbarFabContainerColor(pureBlack: Boolean): Color {
-    return MaterialTheme.colorScheme.onSurface
+    return MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
 }
 
 @Composable
 private fun floatingToolbarFabContentColor(pureBlack: Boolean): Color {
-    return MaterialTheme.colorScheme.surface
-}
-
-@Composable
-private fun floatingToolbarSelectedItemContainerColor(pureBlack: Boolean): Color {
     return MaterialTheme.colorScheme.onSurface
 }
 
 @Composable
+private fun floatingToolbarSelectedItemContainerColor(pureBlack: Boolean): Color {
+    return MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+}
+
+@Composable
 private fun floatingToolbarSelectedItemContentColor(pureBlack: Boolean): Color {
-    return MaterialTheme.colorScheme.surface
+    return MaterialTheme.colorScheme.onSurface
 }
 
 
