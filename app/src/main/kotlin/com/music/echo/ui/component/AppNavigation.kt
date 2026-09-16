@@ -57,8 +57,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import echo.music.iad1tya.ui.screens.Screens
-import echo.music.iad1tya.ui.component.LocalGlassEffectConfig
-import echo.music.iad1tya.ui.component.liquidGlass
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 
@@ -197,7 +195,7 @@ fun AppNavigationRail(
             onDismissRequest = { showMoreOptionsSheet = false },
             sheetState = sheetState,
             dragHandle = { BottomSheetDefaults.DragHandle() },
-            containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainerLow
+            containerColor = MaterialTheme.colorScheme.surfaceContainer
         ) {
             Column(
                 modifier = Modifier
@@ -265,17 +263,11 @@ fun AppNavigationBar(
     glassEnabled: Boolean = false,
     onSearchLongClick: (() -> Unit)? = null
 ) {
-    val glassConfig = LocalGlassEffectConfig.current
-    val containerColor = if (glassEnabled && glassConfig.globalEnabled && glassConfig.navBarEnabled) Color.Transparent else if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-    val contentColor = if (glassEnabled && glassConfig.globalEnabled && glassConfig.navBarEnabled) glassConfig.textColor else if (pureBlack) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+    val containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+    val contentColor = if (pureBlack) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
     val haptics = LocalHapticFeedback.current
     val viewConfiguration = LocalViewConfiguration.current
-    
-    val navModifier = if (glassEnabled && glassConfig.globalEnabled && glassConfig.navBarEnabled) {
-        modifier.liquidGlass(config = glassConfig)
-    } else {
-        modifier
-    }
+    val navModifier = modifier
     
     NavigationBar(
         modifier = navModifier,

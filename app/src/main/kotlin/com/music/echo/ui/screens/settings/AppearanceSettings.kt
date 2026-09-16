@@ -209,13 +209,13 @@ highlightKey: String? = null) {
     val (playerBackground, onPlayerBackgroundChange) =
         rememberEnumPreference(
             PlayerBackgroundStyleKey,
-            defaultValue = PlayerBackgroundStyle.GRADIENT,
-        )
+            defaultValue = PlayerBackgroundStyle.GRADIENT
+            )
     val (miniPlayerBackground, onMiniPlayerBackgroundChange) =
         rememberEnumPreference(
             MiniPlayerBackgroundStyleKey,
-            defaultValue = PlayerBackgroundStyle.DEFAULT,
-        )
+            defaultValue = PlayerBackgroundStyle.DEFAULT
+            )
 
     val (defaultOpenTab, onDefaultOpenTabChange) = rememberEnumPreference(
         DefaultOpenTabKey,
@@ -597,7 +597,6 @@ highlightKey: String? = null) {
                     PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
                     PlayerBackgroundStyle.APPLE_MUSIC -> stringResource(R.string.apple_music)
                     PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
-                    PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
                 }
             }
         )
@@ -620,7 +619,6 @@ highlightKey: String? = null) {
                     PlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
                     PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
                     PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
-                    PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
                     else -> stringResource(R.string.unknown)
                 }
             }
@@ -942,8 +940,8 @@ highlightKey: String? = null) {
                         modifier = Modifier.weight(1f),
                         enabled = false,
                         colors = sliderPreviewColors,
-                        isPlaying = true,
-                    )
+                        isPlaying = true
+            )
                     Text(
                         text = stringResource(R.string.squiggly),
                         style = MaterialTheme.typography.labelSmall,
@@ -995,8 +993,8 @@ highlightKey: String? = null) {
                 )
             )
             .verticalScroll(scrollState)
-            .padding(horizontal = 16.dp),
-    ) {
+            .padding(horizontal = 16.dp)
+            ) {
         Spacer(
             Modifier.windowInsetsPadding(
                 LocalPlayerAwareWindowInsets.current.only(
@@ -1063,14 +1061,6 @@ highlightKey: String? = null) {
                         title = { Text(stringResource(R.string.theme)) },
                         description = { Text(stringResource(R.string.theme_desc)) },
                         onClick = { navController.navigate("settings/appearance/theme") }
-                    )
-                )
-                add(
-                    Material3SettingsItem(
-                        icon = painterResource(R.drawable.water_drop),
-                        title = { Text(stringResource(R.string.liquid_glass)) },
-                        description = { Text(stringResource(R.string.liquid_glass_settings)) },
-                        onClick = { navController.navigate("settings/appearance/liquidglass") }
                     )
                 )
                 add(
@@ -1148,7 +1138,6 @@ highlightKey: String? = null) {
                                     PlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
                                     PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
                                     PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
-                                    PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
                                     else -> stringResource(R.string.follow_theme)
                                 }
                             )
@@ -1241,7 +1230,6 @@ highlightKey: String? = null) {
                                 PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
                                 PlayerBackgroundStyle.APPLE_MUSIC -> stringResource(R.string.apple_music)
                                 PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
-                                PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
                             }
                         )
                     },
@@ -1447,8 +1435,8 @@ highlightKey: String? = null) {
                                 )
                             }
                         )
-                    },
-                ),
+                    }
+            ),
                 if (swipeThumbnail) Material3SettingsItem(
     isHighlighted = (highlightKey == stringResource(R.string.swipe_sensitivity)),
                     icon = painterResource(R.drawable.tune),
@@ -1587,28 +1575,6 @@ highlightKey: String? = null) {
                         )
                     },
                     onClick = { showLyricsAnimationStyleDialog = true }
-                ),
-                Material3SettingsItem(
-    isHighlighted = (highlightKey == stringResource(R.string.lyrics_glow_effect)),
-                    icon = painterResource(R.drawable.lyrics),
-                    title = { Text(stringResource(R.string.lyrics_glow_effect)) },
-                    description = { Text(stringResource(R.string.lyrics_glow_effect_desc)) },
-                    trailingContent = {
-                        Switch(
-                            checked = lyricsGlowEffect,
-                            onCheckedChange = onLyricsGlowEffectChange,
-                            thumbContent = {
-                                Icon(
-                                    painter = painterResource(
-                                        id = if (lyricsGlowEffect) R.drawable.check else R.drawable.close
-                                    ),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(SwitchDefaults.IconSize)
-                                )
-                            }
-                        )
-                    },
-                    onClick = { onLyricsGlowEffectChange(!lyricsGlowEffect) }
                 ),
                 if (lyricsAnimationStyle == LyricsAnimationStyle.echomusic_1) {
                     Material3SettingsItem(
@@ -2066,12 +2032,12 @@ highlightKey: String? = null) {
         navigationIcon = {
             IconButton(
                 onClick = navController::navigateUp,
-                onLongClick = navController::backToMain,
+                onLongClick = navController::backToMain
             ) {
                 Icon(
                     painterResource(R.drawable.arrow_back),
-                    contentDescription = null,
-                )
+                    contentDescription = null
+            )
             }
         }
     )

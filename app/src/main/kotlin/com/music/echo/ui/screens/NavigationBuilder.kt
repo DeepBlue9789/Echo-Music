@@ -38,14 +38,12 @@ import echo.music.iad1tya.ui.screens.search.OnlineSearchResult
 import echo.music.iad1tya.ui.screens.search.SearchScreen
 import echo.music.iad1tya.ui.screens.settings.AboutScreen
 import echo.music.iad1tya.ui.screens.settings.AppearanceSettings
-import echo.music.iad1tya.ui.screens.settings.GlassEffectSettings
 import echo.music.iad1tya.ui.screens.settings.BackupAndRestore
 import echo.music.iad1tya.ui.screens.settings.ContentSettings
 import echo.music.iad1tya.ui.screens.settings.UptimeScreen
 import echo.music.iad1tya.ui.screens.settings.DarkMode
 import echo.music.iad1tya.ui.screens.settings.PlayerSettings
 import echo.music.iad1tya.ui.screens.settings.PrivacySettings
-import echo.music.iad1tya.ui.screens.settings.RomanizationSettings
 import echo.music.iad1tya.ui.screens.settings.SettingsScreen
 import echo.music.iad1tya.ui.screens.settings.AccountSettingsScreen
 import echo.music.iad1tya.ui.screens.settings.StorageSettings
@@ -351,9 +349,6 @@ fun NavGraphBuilder.navigationBuilder(
         ThemeScreen(navController)
     }
 
-    composable("settings/appearance/liquidglass") {
-        GlassEffectSettings(navController, scrollBehavior)
-    }
 
     composable(
         route = "settings/content?highlightKey={highlightKey}",
@@ -366,10 +361,7 @@ fun NavGraphBuilder.navigationBuilder(
         UptimeScreen(navController, scrollBehavior)
     }
 
-    composable("settings/content/romanization") {
-        RomanizationSettings(navController, scrollBehavior)
-    }
-
+    
     composable(
         route = "settings/ai?highlightKey={highlightKey}",
         arguments = listOf(navArgument("highlightKey") { type = NavType.StringType; nullable = true })

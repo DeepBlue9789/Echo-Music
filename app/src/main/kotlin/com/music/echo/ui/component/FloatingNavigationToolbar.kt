@@ -83,10 +83,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import echo.music.iad1tya.R
 import echo.music.iad1tya.ui.screens.Screens
-import echo.music.iad1tya.ui.component.LocalGlassEffectConfig
-import echo.music.iad1tya.ui.component.isGlassSupported
-import echo.music.iad1tya.ui.component.liquidGlass
-import echo.music.iad1tya.ui.component.GlassComponent
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -111,22 +107,13 @@ fun FloatingNavigationToolbar(
     isSelected: (Screens) -> Boolean,
     onItemClick: (Screens, Boolean) -> Unit,
 ) {
-    val glassConfig = LocalGlassEffectConfig.current
-    val useGlass = isGlassSupported()
-    
-    val denseGlassConfig = glassConfig.copy(
-        blurRadius = 64f,
-        surfaceOpacity = 0.5f,
-        surfaceTintColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface
-    )
-
-    val toolbarContainerColor = if (useGlass) Color.Transparent else (if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+    val useGlass = false
+    val toolbarContainerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
     val toolbarColors = FloatingToolbarDefaults.standardFloatingToolbarColors(
         toolbarContainerColor = toolbarContainerColor,
     )
     
-    val toolbarModifier = if (useGlass) {
-        Modifier.liquidGlass(config = denseGlassConfig, shape = RoundedCornerShape(percent = 50))
+    val toolbarModifier = if (useGlass) {Modifier
     } else {
         Modifier
     }
@@ -308,7 +295,7 @@ fun FloatingToolbarOverflowMenuButton(
                 onDismissRequest = { showSheet = false },
                 sheetState = sheetState,
                 dragHandle = { BottomSheetDefaults.DragHandle() },
-                containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainerLow
+                containerColor = MaterialTheme.colorScheme.surfaceContainer
             ) {
                 Column(
                     modifier = Modifier

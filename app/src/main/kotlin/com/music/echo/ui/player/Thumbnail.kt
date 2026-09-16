@@ -196,7 +196,7 @@ private fun getMediaItems(
 private fun getTextColor(playerBackground: PlayerBackgroundStyle): Color {
     return when (playerBackground) {
         PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onBackground
-        PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT, PlayerBackgroundStyle.GLOW_ANIMATED, PlayerBackgroundStyle.APPLE_MUSIC, PlayerBackgroundStyle.LIVE_MESH, PlayerBackgroundStyle.LIQUID_GLASS -> Color.White
+        PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT, PlayerBackgroundStyle.GLOW_ANIMATED, PlayerBackgroundStyle.APPLE_MUSIC, PlayerBackgroundStyle.LIVE_MESH -> Color.White
     }
 }
 
@@ -601,10 +601,6 @@ private fun ThumbnailItem(
         label = "Rotation"
     )
 
-    val incrementalSeekSkipEnabled by rememberPreference(SeekExtraSeconds, defaultValue = false)
-    var skipMultiplier by remember { mutableIntStateOf(1) }
-    var lastTapTime by remember { mutableLongStateOf(0L) }
-
     val canvasThumbnailAnimation by rememberPreference(CanvasThumbnailAnimationKey, defaultValue = false)
 
     Box(
@@ -642,16 +638,7 @@ private fun ThumbnailItem(
 
                         val currentPosition = playerConnection.player.currentPosition
                         val duration = playerConnection.player.duration
-
-                        val now = System.currentTimeMillis()
-                        if (incrementalSeekSkipEnabled && now - lastTapTime < 1000) {
-                            skipMultiplier++
-                        } else {
-                            skipMultiplier = 1
-                        }
-                        lastTapTime = now
-
-                        val skipAmount = 5000 * skipMultiplier
+                        val skipAmount = 10000
 
                         val leftBound = size.width * 0.33f
                         val rightBound = size.width * 0.66f

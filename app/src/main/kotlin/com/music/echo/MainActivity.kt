@@ -7,7 +7,6 @@ import echo.music.iad1tya.ui.screens.settings.RingtoneViewModel
 import echo.music.iad1tya.ui.component.RingtoneTrimmerDialog
 import echo.music.iad1tya.ui.component.RingtoneProgressDialog
 import echo.music.iad1tya.ui.component.AppFloatingNavBar
-import echo.music.iad1tya.ui.component.liquidGlass
 import echo.music.iad1tya.ui.component.floatingtabbar.rememberFloatingTabBarScrollConnection
 import echo.music.iad1tya.constants.UseFloatingNavBarKey
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -988,49 +987,8 @@ class MainActivity : ComponentActivity() {
                 val showHistoryButton = remember(pauseListenHistory, eventCount) {
                     !(pauseListenHistory && eventCount == 0)
                 }
-
-                val (liquidGlassGlobalEnabled) = rememberPreference(LiquidGlassGlobalEnabledKey, defaultValue = false)
-                val (liquidGlassVibrancy) = rememberPreference(LiquidGlassVibrancyKey, defaultValue = 1f)
-                val (liquidGlassBlurRadius) = rememberPreference(LiquidGlassBlurRadiusKey, defaultValue = 8f)
-                val (liquidGlassLensHeight) = rememberPreference(LiquidGlassLensHeightKey, defaultValue = 0.5f)
-                val (liquidGlassLensAmount) = rememberPreference(LiquidGlassLensAmountKey, defaultValue = 0.5f)
-                val (liquidGlassChromaticAberration) = rememberPreference(LiquidGlassChromaticAberrationKey, defaultValue = true)
-                val (liquidGlassDepthEffect) = rememberPreference(LiquidGlassDepthEffectKey, defaultValue = true)
-                val (liquidGlassSurfaceTintColorInt) = rememberPreference(LiquidGlassSurfaceTintColorKey, defaultValue = 0)
-                val (liquidGlassSurfaceOpacity) = rememberPreference(LiquidGlassSurfaceOpacityKey, defaultValue = 0.4f)
-                val (liquidGlassTextColorInt) = rememberPreference(LiquidGlassTextColorKey, defaultValue = 0)
-                val (liquidGlassPlayerEnabled) = rememberPreference(LiquidGlassPlayerEnabledKey, defaultValue = true)
-                val (liquidGlassMiniPlayerEnabled) = rememberPreference(LiquidGlassMiniPlayerEnabledKey, defaultValue = true)
-                val (liquidGlassNavBarEnabled) = rememberPreference(LiquidGlassNavBarEnabledKey, defaultValue = true)
-                val glassEffectConfig = remember(
-                    liquidGlassGlobalEnabled, useFloatingNavBar, liquidGlassVibrancy, liquidGlassBlurRadius,
-                    liquidGlassLensHeight, liquidGlassLensAmount, liquidGlassChromaticAberration,
-                    liquidGlassDepthEffect, liquidGlassSurfaceTintColorInt,
-                    liquidGlassSurfaceOpacity, liquidGlassTextColorInt, liquidGlassPlayerEnabled,
-                    liquidGlassMiniPlayerEnabled, liquidGlassNavBarEnabled,
-                ) {
-                    GlassEffectConfig(
-                        globalEnabled = liquidGlassGlobalEnabled && useFloatingNavBar,
-                        vibrancy = liquidGlassVibrancy,
-                        blurRadius = liquidGlassBlurRadius,
-                        lensHeight = liquidGlassLensHeight,
-                        lensAmount = liquidGlassLensAmount,
-                        chromaticAberration = liquidGlassChromaticAberration,
-                        depthEffect = liquidGlassDepthEffect,
-                        surfaceTintColor = if (liquidGlassSurfaceTintColorInt == 0) Color.Unspecified else Color(liquidGlassSurfaceTintColorInt),
-                        surfaceOpacity = liquidGlassSurfaceOpacity,
-                        textColor = if (liquidGlassTextColorInt == 0) Color.Unspecified else Color(liquidGlassTextColorInt),
-                        playerEnabled = liquidGlassPlayerEnabled,
-                        miniPlayerEnabled = liquidGlassMiniPlayerEnabled,
-                        navBarEnabled = liquidGlassNavBarEnabled,
-                    )
-                }
                 
                 val baseBg = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-                val appBackdrop = rememberLayerBackdrop {
-                    drawRect(baseBg)
-                    drawContent()
-                }
 
                 val ringtoneViewModel: RingtoneViewModel = viewModel()
                 val ringtoneUiState by ringtoneViewModel.uiState.collectAsState()
@@ -1045,8 +1003,6 @@ class MainActivity : ComponentActivity() {
                     LocalShimmerTheme provides getShimmerTheme(),
                     LocalSyncUtils provides syncUtils,
                     LocalListenTogetherManager provides listenTogetherManager,
-                    LocalGlassEffectConfig provides glassEffectConfig,
-                    LocalAppBackdrop provides appBackdrop,
                 ) {
 
                     Scaffold(
@@ -1121,7 +1077,6 @@ class MainActivity : ComponentActivity() {
                                         ),
                                         windowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top),
                                         modifier = Modifier
-                                            .liquidGlass(config = glassEffectConfig, applyEdgeEffects = false)
                                             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
                                             .windowInsetsPadding(
                                             if (showRail) {
@@ -1414,7 +1369,6 @@ class MainActivity : ComponentActivity() {
                                             slideOutHorizontally(animationSpec = tween(400, easing = EmphasizedEasing)) { it / 8 } + fadeOut(tween(400, easing = EmphasizedEasing))
                                     },
                                     modifier = Modifier
-                                        .layerBackdrop(appBackdrop)
                                         .nestedScroll(topAppBarScrollBehavior.nestedScrollConnection)
                                 ) {
                                     navigationBuilder(
