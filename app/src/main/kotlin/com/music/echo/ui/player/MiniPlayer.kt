@@ -432,8 +432,9 @@ private fun NewMiniPlayer(
                 .then(if (isTabletLandscape) Modifier.width(480.dp).align(Alignment.Center) else Modifier.fillMaxWidth())
                 .height(MiniPlayerHeight)
                 .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
-                .clip(RoundedCornerShape(32.dp))
-                .background(color = backgroundColor)
+                                .clip(RoundedCornerShape(32.dp))
+                .liquidGlass(config = glassConfig, shape = RoundedCornerShape(32.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
                 .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
         ) {
             

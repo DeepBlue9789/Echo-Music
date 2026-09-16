@@ -7,6 +7,7 @@ import echo.music.iad1tya.ui.screens.settings.RingtoneViewModel
 import echo.music.iad1tya.ui.component.RingtoneTrimmerDialog
 import echo.music.iad1tya.ui.component.RingtoneProgressDialog
 import echo.music.iad1tya.ui.component.AppFloatingNavBar
+import echo.music.iad1tya.ui.component.liquidGlass
 import echo.music.iad1tya.ui.component.floatingtabbar.rememberFloatingTabBarScrollConnection
 import echo.music.iad1tya.constants.UseFloatingNavBarKey
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -1120,6 +1121,8 @@ class MainActivity : ComponentActivity() {
                                         ),
                                         windowInsets = WindowInsets.systemBars.only(WindowInsetsSides.Top),
                                         modifier = Modifier
+                                            .liquidGlass(config = glassEffectConfig, applyEdgeEffects = false)
+                                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
                                             .windowInsetsPadding(
                                             if (showRail) {
                                                 WindowInsets(left = NavigationBarHeight)
