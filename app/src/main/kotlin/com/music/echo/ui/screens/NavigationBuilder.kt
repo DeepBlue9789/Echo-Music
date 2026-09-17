@@ -38,6 +38,7 @@ import echo.music.iad1tya.ui.screens.search.OnlineSearchResult
 import echo.music.iad1tya.ui.screens.search.SearchScreen
 import echo.music.iad1tya.ui.screens.settings.AboutScreen
 import echo.music.iad1tya.ui.screens.settings.AppearanceSettings
+import echo.music.iad1tya.ui.screens.settings.AppIconSettingsScreen
 import echo.music.iad1tya.ui.screens.settings.BackupAndRestore
 import echo.music.iad1tya.ui.screens.settings.ContentSettings
 import echo.music.iad1tya.ui.screens.settings.UptimeScreen
@@ -347,6 +348,10 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/appearance/theme") {
         ThemeScreen(navController)
+    }
+    
+    composable("settings/appearance/app_icon") {
+        AppIconSettingsScreen(navController, activity, snackbarHostState)
     }
 
 

@@ -233,6 +233,7 @@ fun SearchScreen(
             Column(
                 modifier = Modifier
                     .background(if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface)
+                    .windowInsetsPadding(WindowInsets.statusBars)
             ) {
                 SearchBar(
                     inputField = {
@@ -372,7 +373,8 @@ fun SearchScreen(
                         SecondaryTabRow(
                             selectedTabIndex = selectedTabIndex,
                             containerColor = Color.Transparent,
-                            indicator = {
+                            divider = {},
+                            indicator = { 
                                 Box(
                                     modifier = Modifier
                                         .tabIndicatorOffset(selectedTabIndex)
@@ -392,6 +394,7 @@ fun SearchScreen(
                             Tab(
                                 selected = selectedTabIndex == 0,
                                 onClick = { selectedTabIndex = 0 },
+                                modifier = Modifier.padding(vertical = 12.dp),
                                 selectedContentColor = MaterialTheme.colorScheme.onSurface,
                                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 text = { Text(stringResource(R.string.tab_explore)) }
@@ -399,6 +402,7 @@ fun SearchScreen(
                             Tab(
                                 selected = selectedTabIndex == 1,
                                 onClick = { selectedTabIndex = 1 },
+                                modifier = Modifier.padding(vertical = 12.dp),
                                 selectedContentColor = MaterialTheme.colorScheme.onSurface,
                                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 text = { Text("Echo Chart") }
@@ -406,6 +410,7 @@ fun SearchScreen(
                             Tab(
                                 selected = selectedTabIndex == 2,
                                 onClick = { selectedTabIndex = 2 },
+                                modifier = Modifier.padding(vertical = 12.dp),
                                 selectedContentColor = MaterialTheme.colorScheme.onSurface,
                                 unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
                                 text = { Text(stringResource(R.string.tab_album)) }

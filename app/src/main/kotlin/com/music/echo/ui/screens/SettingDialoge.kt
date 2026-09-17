@@ -103,7 +103,7 @@ fun SettingDialoge(
                             } else null,
                             onClick = {
                                 onDismissRequest()
-                                if (isLoggedIn) onNavigate("settings/account") else onNavigate("login") 
+                                if (isLoggedIn) onNavigate("settings/account") else onNavigate("login")
                             }
                         )
                     )
@@ -188,18 +188,18 @@ fun SettingDialoge(
                         title = { Text(androidx.compose.ui.res.stringResource(R.string.settings)) },
                         description = { Text(androidx.compose.ui.res.stringResource(R.string.setting_desc_settings_main)) },
                         icon = painterResource(R.drawable.settings),
-                        onClick = { 
+                        onClick = {
                             onDismissRequest()
-                            onNavigate("settings") 
+                            onNavigate("settings")
                         }
                     ),
                     Material3SettingsItem(
                         title = { Text("About") },
                         icon = painterResource(R.drawable.info),
                         trailingContent = { Text(BuildConfig.VERSION_NAME, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) },
-                        onClick = { 
+                        onClick = {
                             onDismissRequest()
-                            onNavigate("settings/about") 
+                            onNavigate("settings/about")
                         }
                     )
                 )
@@ -212,17 +212,11 @@ fun SettingDialoge(
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "Privacy Policy",
+                    text = "Just vibe to the music — the dev's got the rest handled.",
                     style = MaterialTheme.typography.bodySmall,
                     color = onSecondaryColor,
-                    modifier = Modifier.clickable { uriHandler.openUri("https://echomusic.fun/p/privacy-policy") }.padding(4.dp)
-                )
-                Text(text = " • ", color = onSecondaryColor, style = MaterialTheme.typography.bodySmall)
-                Text(
-                    text = "Terms of Service",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = onSecondaryColor,
-                    modifier = Modifier.clickable { uriHandler.openUri("https://echomusic.fun/p/toc") }.padding(4.dp)
+                    modifier = Modifier.padding(4.dp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         }
