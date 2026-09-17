@@ -84,6 +84,12 @@ import androidx.compose.ui.unit.sp
 import echo.music.iad1tya.R
 import echo.music.iad1tya.ui.screens.Screens
 import kotlinx.coroutines.launch
+import echo.music.iad1tya.constants.LiveBlurDensityKey
+import echo.music.iad1tya.utils.rememberPreference
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import androidx.compose.ui.unit.dp
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,16 +113,17 @@ fun FloatingNavigationToolbar(
     isSelected: (Screens) -> Boolean,
     onItemClick: (Screens, Boolean) -> Unit,
 ) {
-    val useGlass = false
-    val toolbarContainerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+        val toolbarContainerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+    android.util.Log.d("COLOR_MATCH", "NavBar - pureBlack parameter: $pureBlack, toolbarContainerColor: $toolbarContainerColor")
     val toolbarColors = FloatingToolbarDefaults.standardFloatingToolbarColors(
-        toolbarContainerColor = toolbarContainerColor,
+        toolbarContainerColor = androidx.compose.ui.graphics.Color.Transparent,
     )
     
-    val toolbarModifier = if (useGlass) {Modifier
-    } else {
-        Modifier
-    }
+    val outlineColor = androidx.compose.material3.MaterialTheme.colorScheme.outline
+    val toolbarModifier = androidx.compose.ui.Modifier
+        .clip(androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
+        .background(toolbarContainerColor)
+        .border(1.dp, outlineColor.copy(alpha = 0.3f), androidx.compose.foundation.shape.RoundedCornerShape(percent = 50))
 
     val hasOverflowMenu = (onShuffleClick != null && shuffleIconRes != null) || onMusicRecognitionClick != null
     val hasFabAction = onFabClick != null && fabIconRes != null
@@ -125,7 +132,7 @@ fun FloatingNavigationToolbar(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
     ) {
-        val showSelectedLabels = false
+        val showSelectedLabels = true
 
         HorizontalFloatingToolbar(
             expanded = true,

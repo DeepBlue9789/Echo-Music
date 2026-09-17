@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -157,6 +158,10 @@ highlightKey: String? = null) {
     val (enableHaptics, onEnableHapticsChange) = rememberPreference(
         echo.music.iad1tya.constants.EnableHapticsKey,
         defaultValue = false
+    )
+    val (liveBlurDensity, onLiveBlurDensityChange) = rememberPreference(
+        echo.music.iad1tya.constants.LiveBlurDensityKey,
+        defaultValue = 50f
     )
     val (selectedThemeColorInt) = rememberPreference(
         SelectedThemeColorKey,
@@ -1063,6 +1068,7 @@ highlightKey: String? = null) {
                         onClick = { navController.navigate("settings/appearance/theme") }
                     )
                 )
+                
                 add(
                     Material3SettingsItem(
     isHighlighted = (highlightKey == stringResource(R.string.enable_high_refresh_rate)),

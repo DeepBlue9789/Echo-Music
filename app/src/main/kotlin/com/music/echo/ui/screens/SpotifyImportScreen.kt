@@ -621,39 +621,31 @@ private fun SpotifyAddByLinkDialog(
     onDismiss: () -> Unit,
     onAdd: (String) -> Unit,
 ) {
-    var link by remember { mutableStateOf("") }
+    var link by remember { mutableStateOf(androidx.compose.ui.text.input.TextFieldValue("")) }
 
-    DefaultDialog(
-        onDismiss = onDismiss,
-        title = { Text(stringResource(R.string.spotify_import_by_link)) },
-        buttons = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(android.R.string.cancel))
-            }
-            Button(
-                onClick = { onAdd(link) },
-                enabled = enabled && link.isNotBlank(),
-            ) {
-                Text(stringResource(R.string.spotify_add))
+    echo.music.iad1tya.ui.component.TextFieldDialog(
+        icon = { Icon(painter = painterResource(R.drawable.link), contentDescription = null) },
+        title = {
+            Column {
+                Text(text = stringResource(R.string.spotify_import_by_link))
+                Text(
+                    text = stringResource(R.string.spotify_import_by_link_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
             }
         },
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                text = stringResource(R.string.spotify_import_by_link_desc),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            OutlinedTextField(
-                value = link,
-                onValueChange = { link = it },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                shape = androidx.compose.foundation.shape.CircleShape,
-                placeholder = { Text(stringResource(R.string.spotify_import_by_link_hint)) },
-            )
+        initialTextFieldValue = link,
+        autoFocus = true,
+        placeholder = { Text(stringResource(R.string.spotify_import_by_link_hint)) },
+        onDismiss = onDismiss,
+        onDone = { finalUrl ->
+            if (enabled && finalUrl.isNotBlank()) {
+                onAdd(finalUrl)
+            }
         }
-    }
+    )
 }
 
 @Composable

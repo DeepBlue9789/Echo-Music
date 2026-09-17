@@ -113,10 +113,16 @@ import echo.music.iad1tya.constants.MiniPlayerHeight
 import echo.music.iad1tya.constants.PlayerBackgroundStyle
 import echo.music.iad1tya.constants.UseFloatingNavBarKey
 import echo.music.iad1tya.constants.PureBlackMiniPlayerKey
+import echo.music.iad1tya.constants.PureBlackKey
 import echo.music.iad1tya.constants.SwipeSensitivityKey
 import echo.music.iad1tya.constants.SwipeThumbnailKey
 import echo.music.iad1tya.constants.ThumbnailCornerRadius
 import echo.music.iad1tya.constants.UseNewMiniPlayerDesignKey
+import echo.music.iad1tya.constants.LiveBlurDensityKey
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
+import androidx.compose.ui.unit.dp
+
 import echo.music.iad1tya.db.entities.ArtistEntity
 import echo.music.iad1tya.listentogether.ListenTogetherManager
 import echo.music.iad1tya.models.MediaMetadata
@@ -210,9 +216,27 @@ fun MiniPlayer(
     val clickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
 
     if (useFloatingNavBar) {
-        val pureBlack by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
+        val miniPlayerBackground by rememberEnumPreference(MiniPlayerBackgroundStyleKey, defaultValue = PlayerBackgroundStyle.DEFAULT)
+        val pureBlackMini by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
+        
+        val isSystemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+        val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
+        val useDarkTheme = remember(darkTheme, isSystemInDarkTheme) {
+            if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
+        }
+        val pureBlackGlobalPref by rememberPreference(echo.music.iad1tya.constants.PureBlackKey, defaultValue = false)
+        val globalPureBlack = pureBlackGlobalPref && useDarkTheme
+        
+        val isFollowTheme = miniPlayerBackground == PlayerBackgroundStyle.DEFAULT
+        val pureBlack = if (isFollowTheme) globalPureBlack else pureBlackMini
+        
         val contentColor = if (pureBlack) Color.White else MaterialTheme.colorScheme.onSurface
-        val tabBarContentModifier = Modifier.background(if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh, RoundedCornerShape(percent = 50))
+                val bgTint = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
+        android.util.Log.d("COLOR_MATCH", "MiniPlayer - isFollowTheme: $isFollowTheme, globalPureBlack: $globalPureBlack, pureBlackMini: $pureBlackMini, pureBlack final: $pureBlack, bgTint: $bgTint")
+        
+        val tabBarContentModifier = Modifier
+            .clip(RoundedCornerShape(percent = 50))
+            .background(bgTint)
 
 
         Box(
@@ -258,7 +282,7 @@ private fun NewMiniPlayer(
     val playerConnection = LocalPlayerConnection.current ?: return
     
     
-    val pureBlack by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
+    val pureBlackMini by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
     val isSystemInDarkTheme = isSystemInDarkTheme()
     val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
     val useDarkTheme = remember(darkTheme, isSystemInDarkTheme) {
@@ -266,6 +290,13 @@ private fun NewMiniPlayer(
     }
     
     val miniPlayerBackground by rememberEnumPreference(MiniPlayerBackgroundStyleKey, defaultValue = PlayerBackgroundStyle.DEFAULT)
+    
+    val pureBlackGlobalPref by rememberPreference(echo.music.iad1tya.constants.PureBlackKey, defaultValue = false)
+    val globalPureBlack = pureBlackGlobalPref && useDarkTheme
+    val isFollowTheme = miniPlayerBackground == PlayerBackgroundStyle.DEFAULT
+    val pureBlack = if (isFollowTheme) globalPureBlack else pureBlackMini
+    
+    val bgTint = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
     
     
     val playbackState by playerConnection.playbackState.collectAsState()
@@ -415,7 +446,7 @@ private fun NewMiniPlayer(
                 .height(MiniPlayerHeight)
                 .offset { IntOffset(offsetXAnimatable.value.roundToInt(), 0) }
                                 .clip(RoundedCornerShape(32.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.65f))
+                .background(bgTint)
                 .border(1.dp, outlineColor.copy(alpha = 0.3f), RoundedCornerShape(32.dp))
         ) {
             
@@ -623,7 +654,20 @@ private fun LegacyMiniPlayer(
     modifier: Modifier = Modifier
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
-    val pureBlack by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
+    val pureBlackMini by rememberPreference(PureBlackMiniPlayerKey, defaultValue = false)
+    val isSystemInDarkTheme = isSystemInDarkTheme()
+    val darkTheme by rememberEnumPreference(DarkModeKey, defaultValue = DarkMode.AUTO)
+    val useDarkTheme = remember(darkTheme, isSystemInDarkTheme) {
+        if (darkTheme == DarkMode.AUTO) isSystemInDarkTheme else darkTheme == DarkMode.ON
+    }
+    
+    val miniPlayerBackground by rememberEnumPreference(MiniPlayerBackgroundStyleKey, defaultValue = PlayerBackgroundStyle.DEFAULT)
+    
+    val pureBlackGlobalPref by rememberPreference(echo.music.iad1tya.constants.PureBlackKey, defaultValue = false)
+    val globalPureBlack = pureBlackGlobalPref && useDarkTheme
+    val isFollowTheme = miniPlayerBackground == PlayerBackgroundStyle.DEFAULT
+    val pureBlack = if (isFollowTheme) globalPureBlack else pureBlackMini
+    val bgTint = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainerHigh
     
     val playbackState by playerConnection.playbackState.collectAsState()
     val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
