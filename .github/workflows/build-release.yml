@@ -83,10 +83,31 @@ jobs:
           STORE_PASSWORD: ${{ env.STORE_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleUniversalGmsRelease --no-daemon --stacktrace -Dorg.gradle.java.home="$JAVA_HOME"
+          
+          # Clean tag to version name (e.g. v1.2.5-d1 -> 1.2.5-d1)
+          CLEAN_VERSION="${TAG#v}"
+          BASE_NUMERIC=$(echo "$CLEAN_VERSION" | sed -E 's/-d[0-9]+//' | sed -E 's/-.*//')
+          MAJOR=$(echo "$BASE_NUMERIC" | cut -d. -f1)
+          MINOR=$(echo "$BASE_NUMERIC" | cut -d. -f2)
+          PATCH=$(echo "$BASE_NUMERIC" | cut -d. -f3)
+          D_NUM=$(echo "$CLEAN_VERSION" | sed -nE 's/.*-d([0-9]+)/\1/p')
+          D_NUM=${D_NUM:-0}
+          
+          COMPUTED_CODE=$(( ${MAJOR:-1} * 1000000 + ${MINOR:-2} * 10000 + ${PATCH:-5} * 100 + D_NUM ))
+          echo "Building Universal Release: versionName=$CLEAN_VERSION, versionCode=$COMPUTED_CODE"
+          
+          export APP_VERSION_NAME="$CLEAN_VERSION"
+          export APP_VERSION_CODE="$COMPUTED_CODE"
+          
+          ./gradlew assembleUniversalGmsRelease \
+            -PversionName="$CLEAN_VERSION" \
+            -PversionCode="$COMPUTED_CODE" \
+            --no-daemon --stacktrace -Dorg.gradle.java.home="$JAVA_HOME"
 
       - name: Prepare Release Assets & Changelog
         id: prepare_assets
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p release-apks
           
@@ -106,32 +127,129 @@ jobs:
             exit 1
           fi
           
-          # Generate changelog.json matching echomusicupdater format
-          cat << 'EOF' > release-apks/changelog.json
-          {
-            "description": "Echo Music with Listen Together Real-Time Music Synchronization Engine",
-            "changelog": [
-              {
-                "title": "Listen Together Real-Time Synchronization Engine",
-                "items": [
-                  "Server-Authoritative Virtual Timeline synchronization with millisecond precision",
-                  "Dynamic Pitch-Preserving Soft Slew for inaudible playback drift correction",
-                  "Cooperative Multi-Device Buffer Barrier across track transitions and mid-stream buffering",
-                  "Zero-stutter playback resume with decoder flush prevention",
-                  "Edge-anchored floating chat bubble with system cross-window background blur",
-                  "Full Peer-to-Peer mesh over Tailscale VPN and Local Wi-Fi"
-                ]
-              },
-              {
-                "title": "High-Fidelity Audio Streaming",
-                "items": [
-                  "New JioSaavn 320 kbps High Quality Audio module with automatic seamless fallback to YouTube Opus",
-                  "Audio Quality selection in Settings: Opus and Jio Saavan > Opus"
-                ]
-              }
-            ]
+          if [[ "${{ env.TAG }}" =~ -d[0-9]+ ]]; then
+            echo "Fork sub-version release detected: ${{ env.TAG }}"
+            python3 -c '
+          import os, subprocess, json
+
+          tag = os.environ.get("TAG", "")
+          try:
+              tags_output = subprocess.check_output(["git", "tag", "--sort=-v:refname"], text=True).splitlines()
+              prev_tag = next((t for t in tags_output if t != tag and t.startswith("v")), None)
+          except Exception:
+              prev_tag = None
+
+          if prev_tag:
+              git_range = f"{prev_tag}..HEAD"
+              log_cmd = ["git", "log", git_range, "--pretty=format:%s"]
+          else:
+              log_cmd = ["git", "log", "-n", "15", "--pretty=format:%s"]
+
+          try:
+              commits = subprocess.check_output(log_cmd, text=True).splitlines()
+          except Exception:
+              commits = []
+
+          filtered = []
+          for c in commits:
+              c_clean = c.strip()
+              if not c_clean:
+                  continue
+              low = c_clean.lower()
+              if any(k in low for k in ["sync upstream", "merge branch", "merge remote", "[skip ci]"]):
+                  continue
+              filtered.append(c_clean)
+
+          if not filtered:
+              filtered = ["Bug fixes, performance improvements, and fork enhancements."]
+
+          body_md = f"## Echo Music Release ({tag})\n\n### Fork Changes:\n"
+          for item in filtered:
+              body_md += f"- {item}\n"
+          body_md += "\n---\n*Echo Music Fork with Listen Together Real-Time Synchronization & 320kbps High-Fidelity Audio.*"
+
+          with open("release_body.md", "w", encoding="utf-8") as f:
+              f.write(body_md)
+
+          changelog_data = {
+              "description": f"Echo Music {tag} update",
+              "changelog": [
+                  {
+                      "title": f"Changes in {tag}",
+                      "items": filtered
+                  }
+              ]
           }
-          EOF
+
+          with open("release-apks/changelog.json", "w", encoding="utf-8") as f:
+              json.dump(changelog_data, f, indent=2)
+          '
+          else
+            echo "Official upstream release detected: ${{ env.TAG }}"
+            python3 -c '
+          import os, urllib.request, json
+
+          tag = os.environ.get("TAG", "")
+          token = os.environ.get("GITHUB_TOKEN", "")
+
+          headers = {"User-Agent": "EchoMusic-CI"}
+          if token:
+              headers["Authorization"] = f"Bearer {token}"
+
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/tags/{tag}",
+              headers=headers
+          )
+
+          upstream_body = ""
+          changelog_json_downloaded = False
+
+          try:
+              with urllib.request.urlopen(req) as resp:
+                  data = json.loads(resp.read().decode("utf-8"))
+                  upstream_body = data.get("body", "")
+                  assets = data.get("assets", [])
+                  for asset in assets:
+                      if asset.get("name") == "changelog.json":
+                          dl_url = asset.get("browser_download_url")
+                          urllib.request.urlretrieve(dl_url, "release-apks/changelog.json")
+                          changelog_json_downloaded = True
+                          break
+          except Exception as e:
+              print(f"Notice: Could not fetch upstream release notes for {tag}: {e}")
+
+          if not upstream_body:
+              upstream_body = f"Official Echo Music Release {tag}"
+
+          body_md = f"{upstream_body}\n\n---\n*Echo Music Fork with Listen Together Real-Time Synchronization & 320kbps High-Fidelity Audio.*"
+          with open("release_body.md", "w", encoding="utf-8") as f:
+              f.write(body_md)
+
+          if not changelog_json_downloaded:
+              items = []
+              for line in upstream_body.splitlines():
+                  line_s = line.strip()
+                  if line_s.startswith("- ") or line_s.startswith("* "):
+                      item_text = line_s[2:].strip()
+                      if item_text:
+                          items.append(item_text)
+
+              if not items:
+                  items = [f"Official Echo Music upstream release {tag}."]
+
+              changelog_data = {
+                  "description": f"Official Echo Music {tag} Release",
+                  "changelog": [
+                      {
+                          "title": f"What\'s New in {tag}",
+                          "items": items
+                      }
+                  ]
+              }
+              with open("release-apks/changelog.json", "w", encoding="utf-8") as f:
+                  json.dump(changelog_data, f, indent=2)
+          '
+          fi
           
           ls -la release-apks/
 
@@ -140,21 +258,7 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           name: Echo Music ${{ env.TAG }}
-          body: |
-            ## Echo Music Release (${{ env.TAG }})
-            
-            ### High-Fidelity Audio Streaming
-            - **JioSaavn 320kbps High Quality Stream**: Stream pristine 320 kbps AAC/MP4 audio with zero login required.
-            - **Zero-Interruption Fallback**: Automatically falls back to YouTube Opus if a track is not matched on JioSaavn.
-            - **Quality Settings**: Choose between *Opus* and *Jio Saavan > Opus* in Player Settings and Bottom Sheet.
-            
-            ### Listen Together Enhancements
-            - **Server-Authoritative Virtual Timeline Synchronization Engine**: Continuous timeline model ($p(t) = p_{ref} + r \cdot (t - t_{ref})$) with cooperative buffer barriers.
-            - **Seamless Two-Phase Scheduled Play**: Millisecond-precise synchronized track starts without decoder flushes or audio cutouts.
-            - **Pitch-Preserving Dynamic Soft Slew**: Invisible speed corrections ($0.96\times$ to $1.10\times$) keeping devices tightly in sync without audio distortion.
-            - **Edge-Anchored Floating Chat Bubble**: Circular floating bubble remains rock solid at the screen edge while message previews expand naturally beside it.
-            - **Hardware-Accelerated Window Blur**: System-wide cross-window backdrop blur on supported Android versions with custom tint and opacity sliders.
-            - **Peer-to-Peer Mesh Mode**: Direct connection over Tailscale mesh and local Wi-Fi without third-party server requirements.
+          body_path: release_body.md
           files: |
             release-apks/*.apk
             release-apks/changelog.json

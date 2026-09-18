@@ -4,6 +4,11 @@ on:
   schedule:
     # Run every 6 hours
     - cron: '0 */6 * * *'
+  push:
+    branches: [ "main" ]
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       force_release:
@@ -16,13 +21,13 @@ permissions:
 
 jobs:
   sync:
-    name: Sync Upstream Changes
+    name: Sync Upstream Changes & Determine Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     outputs:
-      new_release_needed: ${{ steps.check_upstream.outputs.new_release_needed }}
+      new_release_needed: ${{ steps.determine_tag.outputs.new_release_needed }}
       target_tag: ${{ steps.determine_tag.outputs.target_tag }}
 
     steps:
@@ -42,9 +47,10 @@ jobs:
         run: |
           git remote add upstream https://github.com/EchoMusicApp/Echo-Music.git || git remote set-url upstream https://github.com/EchoMusicApp/Echo-Music.git
           git fetch upstream main --no-tags
+          git fetch origin --tags || true
 
-      - name: Check for New Upstream Commits
-        id: check_upstream
+      - name: Check Upstream & Fork State
+        id: check_state
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -59,25 +65,27 @@ jobs:
           UPSTREAM_LATEST_TAG=$(gh api repos/EchoMusicApp/Echo-Music/releases/latest --jq .tag_name 2>/dev/null || curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
           echo "Upstream latest release tag: $UPSTREAM_LATEST_TAG"
           
-          FORK_LATEST_TAG=$(gh api repos/DeepBlue9789/Echo-Music/releases/latest --jq .tag_name 2>/dev/null || curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/DeepBlue9789/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
-          echo "Fork latest release tag: $FORK_LATEST_TAG"
+          # Check if upstream latest tag has been released on this fork
+          NEW_UPSTREAM_RELEASE=false
+          if [ -n "$UPSTREAM_LATEST_TAG" ]; then
+            FORK_HAS_TAG=$(gh api "repos/DeepBlue9789/Echo-Music/releases/tags/${UPSTREAM_LATEST_TAG}" --jq .tag_name 2>/dev/null || echo "")
+            if [ -z "$FORK_HAS_TAG" ] && ! git rev-parse "$UPSTREAM_LATEST_TAG" >/dev/null 2>&1; then
+              NEW_UPSTREAM_RELEASE=true
+              echo "New upstream release detected: $UPSTREAM_LATEST_TAG"
+            fi
+          fi
           
           HAS_NEW_COMMITS=false
           if [ "$COMMITS_BEHIND" -gt 0 ]; then
             HAS_NEW_COMMITS=true
           fi
           
-          NEW_RELEASE_NEEDED=false
-          if [ "$HAS_NEW_COMMITS" = "true" ] || [ "${{ github.event.inputs.force_release }}" = "true" ] || ([ -n "$UPSTREAM_LATEST_TAG" ] && [ "$UPSTREAM_LATEST_TAG" != "$FORK_LATEST_TAG" ]); then
-            NEW_RELEASE_NEEDED=true
-          fi
-          
           echo "has_new_commits=$HAS_NEW_COMMITS" >> $GITHUB_OUTPUT
-          echo "new_release_needed=$NEW_RELEASE_NEEDED" >> $GITHUB_OUTPUT
+          echo "new_upstream_release=$NEW_UPSTREAM_RELEASE" >> $GITHUB_OUTPUT
           echo "upstream_tag=$UPSTREAM_LATEST_TAG" >> $GITHUB_OUTPUT
 
       - name: Merge Upstream into Fork
-        if: steps.check_upstream.outputs.has_new_commits == 'true'
+        if: steps.check_state.outputs.has_new_commits == 'true'
         run: |
           echo "Merging upstream/main into fork main..."
           git merge upstream/main --no-commit --no-ff || {
@@ -99,20 +107,73 @@ jobs:
 
       - name: Determine Target Release Tag
         id: determine_tag
-        if: steps.check_upstream.outputs.new_release_needed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_UPSTREAM_RELEASE: ${{ steps.check_state.outputs.new_upstream_release }}
+          UPSTREAM_TAG: ${{ steps.check_state.outputs.upstream_tag }}
         run: |
-          VERSION=$(grep "versionName" app/build.gradle.kts | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
-          TARGET_TAG="v${VERSION}"
+          git fetch origin --tags || true
           
-          # If this tag already exists on fork, append timestamp
-          if git rev-parse "$TARGET_TAG" >/dev/null 2>&1; then
-            TARGET_TAG="v${VERSION}-$(date +'%Y%m%d%H%M')"
+          # Case 1: Official upstream release available that fork has not yet published
+          if [ "$NEW_UPSTREAM_RELEASE" = "true" ] && [ -n "$UPSTREAM_TAG" ]; then
+            TARGET_TAG="$UPSTREAM_TAG"
+            echo "Target is official upstream release: $TARGET_TAG"
+            echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
+            echo "new_release_needed=true" >> $GITHUB_OUTPUT
+            git tag "$TARGET_TAG"
+            git push origin "$TARGET_TAG" || echo "Tag push skipped or already exists"
+            exit 0
           fi
           
-          echo "Target Release Tag: $TARGET_TAG"
-          echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
-          git tag "$TARGET_TAG"
-          git push origin "$TARGET_TAG" || echo "Tag push skipped or already exists"
+          # Case 2: Sub-version release for fork edits (vX.Y.Z-d1, vX.Y.Z-d2, ...)
+          # Extract base version: e.g. 1.2.5 or 1.2.6
+          BASE_VERSION=$(echo "${UPSTREAM_TAG:-}" | sed -E 's/^v//' | sed -E 's/-.*//')
+          if [ -z "$BASE_VERSION" ]; then
+            BASE_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' app/build.gradle.kts | head -n 1)
+          fi
+          [ -z "$BASE_VERSION" ] && BASE_VERSION="1.2.5"
+          echo "Base semver: $BASE_VERSION"
+          
+          # Find existing -d* tags for this base version
+          EXISTING_D_TAGS=$(git tag -l "v${BASE_VERSION}-d*")
+          HIGHEST_D=0
+          for t in $EXISTING_D_TAGS; do
+            D_NUM=$(echo "$t" | sed -nE "s/^v${BASE_VERSION}-d([0-9]+)$/\1/p")
+            if [ -n "$D_NUM" ] && [ "$D_NUM" -gt "$HIGHEST_D" ] 2>/dev/null; then
+              HIGHEST_D=$D_NUM
+            fi
+          done
+          echo "Highest existing sub-version d number: $HIGHEST_D"
+          
+          # Determine latest tag on the fork for commit diffing
+          if [ "$HIGHEST_D" -gt 0 ]; then
+            LAST_RELEASE_TAG="v${BASE_VERSION}-d${HIGHEST_D}"
+          else
+            LAST_RELEASE_TAG="v${BASE_VERSION}"
+          fi
+          echo "Comparing HEAD against last release tag: $LAST_RELEASE_TAG"
+          
+          COMMITS_AHEAD=0
+          if git rev-parse "$LAST_RELEASE_TAG" >/dev/null 2>&1; then
+            COMMITS_AHEAD=$(git rev-list --count "${LAST_RELEASE_TAG}..HEAD")
+          else
+            COMMITS_AHEAD=1
+          fi
+          echo "Commits ahead of $LAST_RELEASE_TAG: $COMMITS_AHEAD"
+          
+          FORCE_RELEASE="${{ github.event.inputs.force_release }}"
+          if [ "$COMMITS_AHEAD" -gt 0 ] || [ "$FORCE_RELEASE" = "true" ]; then
+            NEXT_D=$((HIGHEST_D + 1))
+            TARGET_TAG="v${BASE_VERSION}-d${NEXT_D}"
+            echo "Calculated new fork sub-version tag: $TARGET_TAG"
+            echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
+            echo "new_release_needed=true" >> $GITHUB_OUTPUT
+            git tag "$TARGET_TAG"
+            git push origin "$TARGET_TAG" || echo "Tag push skipped or already exists"
+          else
+            echo "No new commits ahead of $LAST_RELEASE_TAG. Release not needed."
+            echo "new_release_needed=false" >> $GITHUB_OUTPUT
+          fi
 
   release:
     name: Trigger Release Build

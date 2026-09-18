@@ -77,6 +77,8 @@ import echo.music.iad1tya.R
 import echo.music.iad1tya.constants.AudioNormalizationKey
 import echo.music.iad1tya.constants.AudioOffload
 import echo.music.iad1tya.constants.AudioQualityKey
+import echo.music.iad1tya.constants.JioSaavnOnWifiOnlyKey
+import echo.music.iad1tya.utils.isWifiConnected
 import echo.music.iad1tya.constants.AutoDownloadOnLikeKey
 import echo.music.iad1tya.constants.AutoLoadMoreKey
 import echo.music.iad1tya.constants.AutoSkipNextOnErrorKey
@@ -3056,7 +3058,15 @@ class MusicService :
                 val knownTitle = dbSong?.song?.title
                 val knownDuration = dbSong?.song?.duration?.let { if (it > 0) it * 1000L else null }
 
-                if (lockedQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS) {
+                val isJioSaavnWifiOnly = dataStore.get(JioSaavnOnWifiOnlyKey, false)
+                val allowJioSaavn = lockedQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS &&
+                        (!isJioSaavnWifiOnly || isWifiConnected(applicationContext))
+
+                if (lockedQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS && isJioSaavnWifiOnly && !isWifiConnected(applicationContext)) {
+                    Timber.tag("MusicService").i("JioSaavn on Wi-Fi only enabled but mobile data active, falling back to YouTube Opus to save bandwidth")
+                }
+
+                if (allowJioSaavn) {
                     var songTitle = knownTitle ?: runCatching {
                         withContext(Dispatchers.Main) {
                             player.findNextMediaItemById(mediaId)?.metadata?.title
@@ -4345,7 +4355,11 @@ class MusicService :
                         val knownDuration = dbSong?.song?.duration?.takeIf { it > 0 }
 
                         var preloadedUrl: String? = null
-                        if (audioQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS) {
+                        val isJioSaavnWifiOnly = dataStore.get(JioSaavnOnWifiOnlyKey, false)
+                        val allowJioSaavn = audioQuality == echo.music.iad1tya.constants.AudioQuality.JIO_SAAVN_OPUS &&
+                                (!isJioSaavnWifiOnly || isWifiConnected(applicationContext))
+
+                        if (allowJioSaavn) {
                             val songTitle = knownTitle ?: runCatching {
                                 withContext(Dispatchers.Main) {
                                     player.findNextMediaItemById(mediaId)?.metadata?.title

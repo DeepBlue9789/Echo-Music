@@ -653,6 +653,19 @@ fun isNewerVersion(latestVersion: String, currentVersion: String): Boolean {
         }
     }
 
+    // Base semver is identical (e.g. both 1.2.5).
+    // Evaluate fork sub-version suffix: -d<N> (e.g. "1.2.5-d1" > "1.2.5", "1.2.5-d2" > "1.2.5-d1")
+    fun extractDVersion(versionStr: String): Int {
+        val suffixMatch = Regex("""-d(\d+)""", RegexOption.IGNORE_CASE).find(versionStr)
+        return suffixMatch?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    }
+
+    val latestD = extractDVersion(latestVersionClean)
+    val currentD = extractDVersion(currentVersionClean)
+
+    if (latestD > currentD) return true
+    if (latestD < currentD) return false
+
     if (latestVersionClean == currentVersionClean) {
         val latestIsBeta = latestVersion.startsWith("b", ignoreCase = true)
         val currentIsBeta = currentVersion.startsWith("b", ignoreCase = true)

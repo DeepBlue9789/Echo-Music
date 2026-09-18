@@ -33,8 +33,21 @@ android {
         applicationId = "echo.music.iad1tya"
         minSdk = 26
         targetSdk = 36
-        versionCode = 157
-        versionName = "1.2.7"
+        val envVersionName = System.getenv("APP_VERSION_NAME") ?: project.findProperty("versionName")?.toString() ?: "1.2.7"
+        val defaultOrParsedCode = run {
+            val clean = envVersionName.removePrefix("v").trim()
+            val base = clean.split("-").first()
+            val parts = base.split(".").mapNotNull { it.toIntOrNull() }
+            val d = Regex("""-d(\d+)""", RegexOption.IGNORE_CASE).find(clean)?.groupValues?.get(1)?.toIntOrNull()
+            if (parts.size >= 3 && d != null) {
+                parts[0] * 1000000 + parts[1] * 10000 + parts[2] * 100 + d
+            } else null
+        } ?: 157
+        val envVersionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull()
+            ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
+            ?: defaultOrParsedCode
+        versionCode = envVersionCode
+        versionName = envVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

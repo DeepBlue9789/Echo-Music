@@ -220,7 +220,8 @@ class ListenTogetherClient @Inject constructor(
     private val _rtt = MutableStateFlow(0L)
     val rtt: StateFlow<Long> = _rtt.asStateFlow()
     
-    private val _serverTimeOffset = MutableStateFlow(0L)
+    // Initialize serverTimeOffset with local wall-clock offset so toNetworkTime() never clamps to 0 before NTP burst resolves
+    private val _serverTimeOffset = MutableStateFlow(System.currentTimeMillis() - SystemClock.elapsedRealtime())
     val serverTimeOffset: StateFlow<Long> = _serverTimeOffset.asStateFlow()
     
     val clockSynchronizer by lazy { ClockSynchronizer(this, scope) }
@@ -248,7 +249,8 @@ class ListenTogetherClient @Inject constructor(
         }
     }
 
-    
+    private var reconnectJob: Job? = null
+
     private fun observeNetworkChanges() {
         scope.launch {
             try {
@@ -261,15 +263,18 @@ class ListenTogetherClient @Inject constructor(
                         log(LogLevel.INFO, "Network restored, checking if reconnection needed")
                         
                         if (_connectionState.value == ConnectionState.ERROR || 
-                            _connectionState.value == ConnectionState.DISCONNECTED) {
+                            _connectionState.value == ConnectionState.DISCONNECTED ||
+                            _connectionState.value == ConnectionState.RECONNECTING) {
+                            
+                            reconnectJob?.cancel()
+                            reconnectJob = null
+                            reconnectAttempts = 0
                             
                             if (directTargetUrl != null) {
-                                log(LogLevel.INFO, "Network restored, triggering P2P reconnection")
-                                reconnectAttempts = 0 
+                                log(LogLevel.INFO, "Network restored, triggering immediate P2P reconnection")
                                 connectDirect(directTargetUrl!!, storedUsername ?: "Echo Device")
                             } else if (sessionToken != null || storedRoomCode != null || hasPersistedSession || pendingAction != null) {
-                                log(LogLevel.INFO, "Network restored, triggering central server reconnection")
-                                reconnectAttempts = 0
+                                log(LogLevel.INFO, "Network restored, triggering immediate central server reconnection")
                                 connect()
                             }
                         }
@@ -814,10 +819,10 @@ class ListenTogetherClient @Inject constructor(
             log(LogLevel.INFO, "Attempting reconnect", 
                 "Attempt $reconnectAttempts/$MAX_RECONNECT_ATTEMPTS, waiting ${delaySeconds}s, reason: ${t.message}")
             
-            scope.launch {
+            reconnectJob?.cancel()
+            reconnectJob = scope.launch {
                 _events.emit(ListenTogetherEvent.Reconnecting(reconnectAttempts, MAX_RECONNECT_ATTEMPTS))
                 delay(delayMs)
-                
                 
                 if (_connectionState.value == ConnectionState.RECONNECTING || _connectionState.value == ConnectionState.DISCONNECTED) {
                     log(LogLevel.INFO, "Reconnecting after backoff", "Delay was ${delaySeconds}s")
@@ -1201,6 +1206,13 @@ class ListenTogetherClient @Inject constructor(
                         val currentRtt = System.currentTimeMillis() - pingSentTime
                         _rtt.value = currentRtt
                         log(LogLevel.DEBUG, "Pong received", "RTT: ${currentRtt}ms")
+                        if (pongPayload != null && pongPayload.serverTime > 0L) {
+                            val coarseOffset = pongPayload.serverTime - (SystemClock.elapsedRealtime() - currentRtt / 2)
+                            // If clock synchronizer hasn't established high precision samples yet, seed with coarseOffset
+                            if (_rtt.value <= 0L || kotlin.math.abs(_serverTimeOffset.value - coarseOffset) > 5000L) {
+                                updateServerTimeOffset(coarseOffset, currentRtt)
+                            }
+                        }
                         pingSentTime = 0
                     } else {
                         log(LogLevel.DEBUG, "Pong received")

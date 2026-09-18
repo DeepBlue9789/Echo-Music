@@ -430,4 +430,46 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 3. **Resource Constraints**:
    - Added `ram: 5120` to both `init` and `analyze` steps, and set `threads: 2` in `github/codeql-action/analyze@v3` to prevent memory spikes and disk-thrashing OOMs.
 
+---
 
+## 15. JioSaavn Wi-Fi Only Streaming & Fork Sub-Versioning Architecture
+
+### A. JioSaavn Mobile Data Conservation (Wi-Fi Only Toggle)
+- **Problem**: 320 kbps AAC streams consume ~2.4 MB per minute (~10 MB for a 4-minute track). When listening on limited mobile data plans, users requested an option to use standard YouTube Opus (~160 kbps) over mobile data and automatically elevate to JioSaavn 320 kbps on Wi-Fi.
+- **Preference Key**: Added `JioSaavnOnWifiOnlyKey = booleanPreferencesKey("jio_saavn_on_wifi_only")` in `core/src/main/kotlin/echo/music/iad1tya/constants/PreferenceKeys.kt` (defaults to `false`).
+- **Network Validation**: Added `isWifiConnected(context)` in `app/src/main/kotlin/com/music/echo/utils/NetworkUtils.kt`, checking for `NetworkCapabilities.TRANSPORT_WIFI` or `TRANSPORT_ETHERNET`.
+- **Playback & Preload Logic (`MusicService.kt`)**:
+  - In `playerResponseForPlayback`: when `audioQuality == AudioQuality.JIO_SAAVN_OPUS`, if `jioSaavnOnWifiOnly` is enabled and `!isWifiConnected(context)`, JioSaavn track resolution is skipped and playback falls back directly to YouTube Opus.
+  - In `preloadUpcomingItems`: identical Wi-Fi connectivity guard prevents pre-resolving and caching 320 kbps streams over cellular data.
+- **UI Integration**:
+  - `AudioDeviceBottomSheet.kt`: When `AudioQuality.JIO_SAAVN_OPUS` is selected in `AudioQualitySelector`, an animated sub-card smoothly reveals a toggle row: *"Use JioSaavn only on Wi-Fi"* with explanation subtitle *"Save mobile data by using Opus on cellular networks"*.
+  - `PlayerSettings.kt`: Mirrored in Player Settings as a Material 3 switch item beneath the Audio Quality selection.
+
+### B. Fork Sub-Versioning & Upstream Sync Architecture (`-d<N>`)
+- **Problem**: Previously, `sync-upstream.yml` generated tags with timestamp suffixes (`v1.2.5-YYYYMMDDHHMM`) and `build-release.yml` used a hardcoded changelog listing all Listen Together changes from the beginning of the fork. When upstream released an update (e.g. 1.2.6), fork builds did not inherit upstream's official changelog.
+- **Version Release Convention**:
+  1. **Official Upstream Releases (`vX.Y.Z`)**:
+     - When official Echo Music publishes a new release (e.g. `v1.2.6`), `sync-upstream.yml` detects the new release, merges `upstream/main`, tags `v1.2.6`, and triggers the release builder.
+     - `build-release.yml` queries GitHub API `https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/tags/${TAG}` to extract the official upstream markdown release notes and downloads or parses `changelog.json`.
+     - The release published to `DeepBlue9789/Echo-Music` contains the official upstream changelog.
+  2. **Fork Sub-Version Releases (`vX.Y.Z-d1`, `vX.Y.Z-d2`, ...)**:
+     - Any modifications pushed to the fork's `main` branch (or triggered via workflow dispatch) calculate the next sub-version suffix: `v${BASE_VERSION}-d<N+1>` based on existing tags.
+     - `build-release.yml` computes the git diff range `${PREV_TAG}..HEAD` (excluding bot/sync commits) to generate both the GitHub release markdown body and `changelog.json`.
+     - When upstream bumps to `v1.2.6`, the official `v1.2.6` release is published, and subsequent fork modifications automatically become `v1.2.6-d1`, `v1.2.6-d2`, etc.
+- **Android `versionCode` Monotonic Guarantee**:
+  - Android Package Manager blocks updates with `INSTALL_FAILED_VERSION_DOWNGRADE` if `versionCode` decreases or fails to increment.
+  - In `app/build.gradle.kts` and `build-release.yml`, version codes are computed using the decimal encoding:
+    $$\text{versionCode} = \text{MAJOR} \times 1,000,000 + \text{MINOR} \times 10,000 + \text{PATCH} \times 100 + D$$
+  - Examples:
+    - Base `1.2.5`: $1,020,500$ (or fallback 155).
+    - Fork `1.2.5-d1`: $1,020,501$.
+    - Fork `1.2.5-d2`: $1,020,502$.
+    - Upstream `1.2.6`: $1,020,600$.
+    - Fork `1.2.6-d1`: $1,020,601$.
+  - This strictly guarantees $1,020,601 > 1,020,600 > 1,020,502 > 1,020,501 > 155$, preventing update install rejections.
+- **In-App Update Engine (`echomusicupdater.kt`)**:
+  - `isNewerVersion()` parses `-d(\d+)` suffixes when base semver matches, correctly evaluating `1.2.5-d1 > 1.2.5`, `1.2.5-d2 > 1.2.5-d1`, and `1.2.6 > 1.2.5-d2`.
+  - `fetchChangelogForVersion()` supports `-d<N>` tags for post-update "What's New" dialog rendering.
+- **Upstream Merge Safety**:
+  - `sync-upstream.yml` continues to protect against workflow permissions rejections (`git rm -rf --cached .github/workflows/`, `git checkout HEAD -- .github/workflows/`, `git clean -fd .github/workflows/`).
+  - `app/build.gradle.kts` uses dynamic environment variables (`APP_VERSION_NAME`, `APP_VERSION_CODE`) with safe fallbacks, preventing merge conflicts when upstream bumps version strings.

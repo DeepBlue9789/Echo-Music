@@ -277,6 +277,10 @@ class P2PWebSocketServer(
                 val session = PeerSession(userId = userId, username = username, isHost = isConnHost)
                 peerSessions[conn] = session
 
+                val now = System.currentTimeMillis()
+                val livePosSec = getTimelinePositionSeconds(now)
+                val livePosMs = (livePosSec * 1000.0).toLong()
+
                 val allSessions = peerSessions.values.toList()
                 val hostSession = allSessions.firstOrNull { it.isHost }
                 val effectiveHostId = hostSession?.userId ?: "server-host"
@@ -287,13 +291,16 @@ class P2PWebSocketServer(
                 _roomState.value = _roomState.value.copy(
                     hostId = effectiveHostId,
                     users = updatedUsers,
+                    position = livePosMs,
+                    isPlaying = virtualTimelineRate > 0.0,
+                    lastUpdate = now,
                     allowParticipantControl = true
                 )
                 _connectedPeerCount.value = peerSessions.size
 
-                Timber.tag(TAG).i("Peer registered in P2P room: $username ($userId, isHost=$isConnHost). HostId=$effectiveHostId. Active room users: ${updatedUsers.size}")
+                Timber.tag(TAG).i("Peer registered in P2P room: $username ($userId, isHost=$isConnHost). HostId=$effectiveHostId. Pos=${livePosMs}ms. Active room users: ${updatedUsers.size}")
 
-                // Send approved join payload with full room state containing all users
+                // Send approved join payload with full live room state containing all users and live position
                 val approvedPayload = JoinApprovedPayload(
                     roomCode = ROOM_CODE_P2P,
                     userId = userId,
@@ -312,7 +319,7 @@ class P2PWebSocketServer(
                     trackId = _roomState.value.currentTrack?.id,
                     trackInfo = _roomState.value.currentTrack,
                     queue = _roomState.value.queue,
-                    serverTime = System.currentTimeMillis()
+                    serverTime = now
                 )
                 sendToPeer(conn, MessageTypes.SESSION_SNAPSHOT, snapshot)
 
@@ -323,6 +330,58 @@ class P2PWebSocketServer(
                 if (username != serverDeviceName) {
                     onPeerJoinedListener?.invoke(username)
                 }
+            }
+
+            MessageTypes.RECONNECT -> {
+                val existingSession = peerSessions[conn]
+                val userId = existingSession?.userId ?: UUID.randomUUID().toString().take(8)
+                val username = existingSession?.username ?: serverDeviceName
+                val isConnHost = existingSession?.isHost ?: (conn.remoteSocketAddress?.address?.isLoopbackAddress == true)
+
+                val session = PeerSession(userId = userId, username = username, isHost = isConnHost)
+                peerSessions[conn] = session
+
+                val now = System.currentTimeMillis()
+                val livePosSec = getTimelinePositionSeconds(now)
+                val livePosMs = (livePosSec * 1000.0).toLong()
+
+                val allSessions = peerSessions.values.toList()
+                val updatedUsers = allSessions.map {
+                    UserInfo(userId = it.userId, username = it.username, isHost = it.isHost, isConnected = true)
+                }.distinctBy { it.username }
+
+                _roomState.value = _roomState.value.copy(
+                    users = updatedUsers,
+                    position = livePosMs,
+                    isPlaying = virtualTimelineRate > 0.0,
+                    lastUpdate = now
+                )
+                _connectedPeerCount.value = peerSessions.size
+
+                Timber.tag(TAG).i("Peer reconnected in P2P room: $username ($userId, isHost=$isConnHost). Live pos=${livePosMs}ms")
+
+                val reconnectedPayload = ReconnectedPayload(
+                    roomCode = ROOM_CODE_P2P,
+                    userId = userId,
+                    state = _roomState.value,
+                    isHost = isConnHost
+                )
+                sendToPeer(conn, MessageTypes.RECONNECTED, reconnectedPayload)
+
+                val snapshot = SessionSnapshotPayload(
+                    seqId = currentSeqId,
+                    isPlaying = virtualTimelineRate > 0.0,
+                    refTimestamp = virtualTimelineRefTime,
+                    refPosition = virtualTimelineRefPos,
+                    playbackRate = virtualTimelineRate,
+                    trackId = _roomState.value.currentTrack?.id,
+                    trackInfo = _roomState.value.currentTrack,
+                    queue = _roomState.value.queue,
+                    serverTime = now
+                )
+                sendToPeer(conn, MessageTypes.SESSION_SNAPSHOT, snapshot)
+
+                broadcastMessage(MessageTypes.USER_RECONNECTED, UserReconnectedPayload(userId, username), excludePeer = conn)
             }
 
             MessageTypes.CLOCK_SYNC_REQ -> {
@@ -523,9 +582,13 @@ class P2PWebSocketServer(
                 broadcastMessage(MessageTypes.PLAY_SCHEDULED, playCmd)
             }
             PlaybackActions.PAUSE -> {
-                serverBarrierJob?.cancel()
-                bufferedUserIds.clear()
-                currentBufferingTrackId = null
+                if (currentBufferingTrackId != null && virtualTimelineRate == 0.0) {
+                    Timber.tag(TAG).d("PAUSE received during buffer barrier for $currentBufferingTrackId - keeping barrier active")
+                } else {
+                    serverBarrierJob?.cancel()
+                    bufferedUserIds.clear()
+                    currentBufferingTrackId = null
+                }
 
                 val now = System.currentTimeMillis()
                 val currentPosSec = if (action.position != null) action.position / 1000.0 else getTimelinePositionSeconds(now)
@@ -703,11 +766,20 @@ class P2PWebSocketServer(
     }
 
     private fun handleBufferReady(userId: String, trackId: String) {
-        // If barrier has already released or room is actively playing, ignore late buffer_ready!
+        // If room is actively playing, ignore late buffer_ready!
         // DO NOT lock the room into a false BUFFER_WAIT loop when playback is already underway!
-        if (currentBufferingTrackId == null || virtualTimelineRate > 0.0) {
+        if (virtualTimelineRate > 0.0) {
             Timber.tag(TAG).d("Ignoring late buffer_ready for $trackId from $userId - room already playing")
             return
+        }
+
+        if (currentBufferingTrackId == null) {
+            if (_roomState.value.currentTrack?.id == trackId) {
+                currentBufferingTrackId = trackId
+            } else {
+                Timber.tag(TAG).d("Ignoring buffer_ready for $trackId from $userId - no active barrier")
+                return
+            }
         }
 
         currentBufferingTrackId = trackId

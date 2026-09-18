@@ -106,6 +106,7 @@ val SelectedYtmPlaylistsKey = stringPreferencesKey("selectedYtmPlaylists")
 
 val ShowAudioFallbackToastKey = booleanPreferencesKey("show_audio_fallback_toast")
 val AudioQualityKey = stringPreferencesKey("audioQuality")
+val JioSaavnOnWifiOnlyKey = booleanPreferencesKey("jio_saavn_on_wifi_only")
 val IpVersionKey = stringPreferencesKey("ipVersion")
 
 enum class AudioQuality {

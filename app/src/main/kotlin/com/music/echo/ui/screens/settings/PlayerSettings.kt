@@ -49,6 +49,7 @@ import echo.music.iad1tya.constants.AutoLoadMoreKey
 import echo.music.iad1tya.constants.AutoSkipNextOnErrorKey
 import echo.music.iad1tya.constants.DisableLoadMoreWhenRepeatAllKey
 import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
+import echo.music.iad1tya.constants.JioSaavnOnWifiOnlyKey
 import echo.music.iad1tya.constants.EnableGoogleCastKey
 import echo.music.iad1tya.constants.HistoryDuration
 import echo.music.iad1tya.constants.KeepScreenOn
@@ -202,6 +203,10 @@ highlightKey: String? = null) {
     )
     val (downloadOnWifiOnly, onDownloadOnWifiOnlyChange) = rememberPreference(
         DownloadOnWifiOnlyKey,
+        defaultValue = false
+    )
+    val (jioSaavnWifiOnly, onJioSaavnWifiOnlyChange) = rememberPreference(
+        JioSaavnOnWifiOnlyKey,
         defaultValue = false
     )
     val (similarContentEnabled, similarContentEnabledChange) = rememberPreference(
@@ -459,6 +464,30 @@ highlightKey: String? = null) {
                     },
                     onClick = { showAudioQualityDialog = true }
                 ))
+
+                if (audioQuality == AudioQuality.JIO_SAAVN_OPUS) {
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.wifi_proxy),
+                        title = { Text("Use JioSaavn only on Wi-Fi") },
+                        description = { Text("Stream 320 kbps on Wi-Fi and fallback to Opus on mobile data") },
+                        trailingContent = {
+                            Switch(
+                                checked = jioSaavnWifiOnly,
+                                onCheckedChange = onJioSaavnWifiOnlyChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (jioSaavnWifiOnly) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { onJioSaavnWifiOnlyChange(!jioSaavnWifiOnly) }
+                    ))
+                }
                 
                 add(Material3SettingsItem(
     isHighlighted = (highlightKey == stringResource(R.string.download_quality_title)),

@@ -131,10 +131,18 @@ import androidx.compose.ui.unit.sp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import echo.music.iad1tya.R
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.material3.Switch
 import echo.music.iad1tya.LocalPlayerConnection
 import echo.music.iad1tya.constants.AudioQuality
 import echo.music.iad1tya.constants.AudioQualityKey
+import echo.music.iad1tya.constants.JioSaavnOnWifiOnlyKey
 import echo.music.iad1tya.utils.rememberEnumPreference
+import echo.music.iad1tya.utils.rememberPreference
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -851,6 +859,10 @@ fun AudioQualitySelector(context: Context) {
         key = AudioQualityKey,
         defaultValue = AudioQuality.OPUS
     )
+    val (jioSaavnWifiOnly, onJioSaavnWifiOnlyChange) = rememberPreference(
+        key = JioSaavnOnWifiOnlyKey,
+        defaultValue = false
+    )
 
     Column(
         modifier = Modifier.fillMaxWidth()
@@ -903,6 +915,40 @@ fun AudioQualitySelector(context: Context) {
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = audioQuality == AudioQuality.JIO_SAAVN_OPUS,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .clickable { onJioSaavnWifiOnlyChange(!jioSaavnWifiOnly) },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = "Use JioSaavn only on Wi-Fi",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Stream 320 kbps on Wi-Fi and fallback to Opus on mobile data to save bandwidth",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Switch(
+                    checked = jioSaavnWifiOnly,
+                    onCheckedChange = onJioSaavnWifiOnlyChange
+                )
             }
         }
     }

@@ -222,12 +222,12 @@ class PlayerConnection(
         startSponsorBlockPolling()
     }
 
-    fun playQueue(queue: Queue) {
+    fun playQueue(queue: Queue, playWhenReady: Boolean = true) {
         if (!playerReadinessFlow.value) {
             Timber.tag(TAG).w("playQueue called before player ready; delegating to service")
         }
         try {
-            service.playQueue(queue)
+            service.playQueue(queue, playWhenReady)
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Error in playQueue")
             throw e

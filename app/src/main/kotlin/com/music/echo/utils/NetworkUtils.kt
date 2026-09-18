@@ -20,3 +20,14 @@ fun isInternetAvailable(context: Context): Boolean {
         else -> false
     }
 }
+
+fun isWifiConnected(context: Context): Boolean {
+    val connectivityManager = context.getSystemService<ConnectivityManager>() ?: return false
+    val activeNetwork = connectivityManager.activeNetwork ?: return false
+    val networkCapabilities =
+        connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
+
+    return networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ||
+            networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)
+}
+
