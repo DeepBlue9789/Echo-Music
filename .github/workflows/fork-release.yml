@@ -1,0 +1,81 @@
+name: Fork Sub-Version Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      custom_notes:
+        description: 'Optional custom release notes/summary for this build'
+        required: false
+        type: string
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  tag-and-release:
+    name: Compute Sub-Version Tag & Trigger Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    outputs:
+      target_tag: ${{ steps.compute_tag.outputs.target_tag }}
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git User
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch All Tags
+        run: |
+          git fetch origin --tags
+
+      - name: Compute Next Sub-Version Tag
+        id: compute_tag
+        run: |
+          # 1. Determine base version (e.g. 1.2.7) from latest official semver tag or app/build.gradle.kts
+          BASE_VERSION=$(git tag -l "v*.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 | sed 's/^v//')
+          if [ -z "$BASE_VERSION" ]; then
+            BASE_VERSION=$(grep -E 'versionName.*[0-9]+\.[0-9]+\.[0-9]+' app/build.gradle.kts | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          fi
+          [ -z "$BASE_VERSION" ] && BASE_VERSION="1.2.7"
+          echo "Base semver: $BASE_VERSION"
+
+          # 2. Find existing -d* tags for this base version
+          EXISTING_D_TAGS=$(git tag -l "v${BASE_VERSION}-d*")
+          HIGHEST_D=0
+          for t in $EXISTING_D_TAGS; do
+            D_NUM=$(echo "$t" | sed -nE "s/^v${BASE_VERSION}-d([0-9]+)$/\1/p")
+            if [ -n "$D_NUM" ] && [ "$D_NUM" -gt "$HIGHEST_D" ] 2>/dev/null; then
+              HIGHEST_D=$D_NUM
+            fi
+          done
+
+          NEXT_D=$((HIGHEST_D + 1))
+          TARGET_TAG="v${BASE_VERSION}-d${NEXT_D}"
+          echo "Computed next sub-version tag: $TARGET_TAG"
+          echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
+
+          # Create and push tag
+          git tag -a "$TARGET_TAG" -m "Echo Music Sub-version Release $TARGET_TAG"
+          git push origin "$TARGET_TAG"
+
+  build:
+    name: Build & Publish Release
+    needs: tag-and-release
+    permissions:
+      contents: write
+    uses: ./.github/workflows/build-release.yml
+    with:
+      tag_name: ${{ needs.tag-and-release.outputs.target_tag }}
+      custom_notes: ${{ github.event.inputs.custom_notes }}
+    secrets: inherit

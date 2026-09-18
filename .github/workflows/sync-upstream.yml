@@ -1,18 +1,13 @@
-name: Sync Upstream & Auto Release
+name: Sync Upstream Release
 
 on:
   schedule:
-    # Run every 6 hours
+    # Check official upstream for new releases every 6 hours
     - cron: '0 */6 * * *'
-  push:
-    branches: [ "main" ]
-    paths-ignore:
-      - '**.md'
-      - '.github/workflows/**'
   workflow_dispatch:
     inputs:
       force_release:
-        description: 'Force triggering a new release even if no new upstream commits'
+        description: 'Force release sync even if tag exists locally'
         type: boolean
         default: false
 
@@ -20,15 +15,15 @@ permissions:
   contents: write
 
 jobs:
-  sync:
-    name: Sync Upstream Changes & Determine Release
+  sync-official-release:
+    name: Check & Sync Official Upstream Release
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     outputs:
-      new_release_needed: ${{ steps.determine_tag.outputs.new_release_needed }}
-      target_tag: ${{ steps.determine_tag.outputs.target_tag }}
+      new_release_needed: ${{ steps.check_upstream.outputs.new_release_needed }}
+      target_tag: ${{ steps.check_upstream.outputs.target_tag }}
 
     steps:
       - name: Checkout Fork
@@ -43,145 +38,84 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Add Upstream Remote & Fetch
+      - name: Add Upstream Remote & Fetch Tags
         run: |
           git remote add upstream https://github.com/EchoMusicApp/Echo-Music.git || git remote set-url upstream https://github.com/EchoMusicApp/Echo-Music.git
-          git fetch upstream main --no-tags
-          git fetch origin --tags || true
+          git fetch upstream --tags
+          git fetch origin --tags
 
-      - name: Check Upstream & Fork State
-        id: check_state
+      - name: Check for New Upstream Release
+        id: check_upstream
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          LOCAL_HASH=$(git rev-parse HEAD)
-          UPSTREAM_HASH=$(git rev-parse upstream/main)
-          echo "Local HEAD: $LOCAL_HASH"
-          echo "Upstream HEAD: $UPSTREAM_HASH"
-          
-          COMMITS_BEHIND=$(git rev-list --count HEAD..upstream/main)
-          echo "Commits behind upstream: $COMMITS_BEHIND"
-          
+          # Fetch latest release tag from official Echo Music repository
           UPSTREAM_LATEST_TAG=$(gh api repos/EchoMusicApp/Echo-Music/releases/latest --jq .tag_name 2>/dev/null || curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest | grep '"tag_name":' | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/' || echo "")
           echo "Upstream latest release tag: $UPSTREAM_LATEST_TAG"
-          
-          # Check if upstream latest tag has been released on this fork
-          NEW_UPSTREAM_RELEASE=false
-          if [ -n "$UPSTREAM_LATEST_TAG" ]; then
-            FORK_HAS_TAG=$(gh api "repos/DeepBlue9789/Echo-Music/releases/tags/${UPSTREAM_LATEST_TAG}" --jq .tag_name 2>/dev/null || echo "")
-            if [ -z "$FORK_HAS_TAG" ] && ! git rev-parse "$UPSTREAM_LATEST_TAG" >/dev/null 2>&1; then
-              NEW_UPSTREAM_RELEASE=true
-              echo "New upstream release detected: $UPSTREAM_LATEST_TAG"
-            fi
-          fi
-          
-          HAS_NEW_COMMITS=false
-          if [ "$COMMITS_BEHIND" -gt 0 ]; then
-            HAS_NEW_COMMITS=true
-          fi
-          
-          echo "has_new_commits=$HAS_NEW_COMMITS" >> $GITHUB_OUTPUT
-          echo "new_upstream_release=$NEW_UPSTREAM_RELEASE" >> $GITHUB_OUTPUT
-          echo "upstream_tag=$UPSTREAM_LATEST_TAG" >> $GITHUB_OUTPUT
 
-      - name: Merge Upstream into Fork
-        if: steps.check_state.outputs.has_new_commits == 'true'
-        run: |
-          echo "Merging upstream/main into fork main..."
-          git merge upstream/main --no-commit --no-ff || {
-            echo "Conflict detected during merge. Resolving with fork preference for conflicting files..."
-            git checkout --ours .
-            git add -A
-          }
-          # Retain fork workflows to prevent GITHUB_TOKEN workflow modification rejection
-          git rm -rf --cached .github/workflows/
-          git checkout HEAD -- .github/workflows/
-          git clean -fd .github/workflows/
-          git add -A
-          if ! git diff-index --quiet HEAD --; then
-            git commit -m "Sync upstream Echo-Music changes into fork"
-            git push origin main
-          else
-            echo "No changes to commit."
-          fi
-
-      - name: Determine Target Release Tag
-        id: determine_tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_UPSTREAM_RELEASE: ${{ steps.check_state.outputs.new_upstream_release }}
-          UPSTREAM_TAG: ${{ steps.check_state.outputs.upstream_tag }}
-        run: |
-          git fetch origin --tags || true
-          
-          # Case 1: Official upstream release available that fork has not yet published
-          if [ "$NEW_UPSTREAM_RELEASE" = "true" ] && [ -n "$UPSTREAM_TAG" ]; then
-            TARGET_TAG="$UPSTREAM_TAG"
-            echo "Target is official upstream release: $TARGET_TAG"
-            echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
-            echo "new_release_needed=true" >> $GITHUB_OUTPUT
-            git tag "$TARGET_TAG"
-            git push origin "$TARGET_TAG" || echo "Tag push skipped or already exists"
+          if [ -z "$UPSTREAM_LATEST_TAG" ]; then
+            echo "Unable to determine upstream latest release tag. Exiting."
+            echo "new_release_needed=false" >> $GITHUB_OUTPUT
             exit 0
           fi
-          
-          # Case 2: Sub-version release for fork edits (vX.Y.Z-d1, vX.Y.Z-d2, ...)
-          # Extract base version: e.g. 1.2.5 or 1.2.6
-          BASE_VERSION=$(echo "${UPSTREAM_TAG:-}" | sed -E 's/^v//' | sed -E 's/-.*//')
-          if [ -z "$BASE_VERSION" ]; then
-            BASE_VERSION=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' app/build.gradle.kts | head -n 1)
-          fi
-          [ -z "$BASE_VERSION" ] && BASE_VERSION="1.2.5"
-          echo "Base semver: $BASE_VERSION"
-          
-          # Find existing -d* tags for this base version
-          EXISTING_D_TAGS=$(git tag -l "v${BASE_VERSION}-d*")
-          HIGHEST_D=0
-          for t in $EXISTING_D_TAGS; do
-            D_NUM=$(echo "$t" | sed -nE "s/^v${BASE_VERSION}-d([0-9]+)$/\1/p")
-            if [ -n "$D_NUM" ] && [ "$D_NUM" -gt "$HIGHEST_D" ] 2>/dev/null; then
-              HIGHEST_D=$D_NUM
-            fi
-          done
-          echo "Highest existing sub-version d number: $HIGHEST_D"
-          
-          # Determine latest tag on the fork for commit diffing
-          if [ "$HIGHEST_D" -gt 0 ]; then
-            LAST_RELEASE_TAG="v${BASE_VERSION}-d${HIGHEST_D}"
-          else
-            LAST_RELEASE_TAG="v${BASE_VERSION}"
-          fi
-          echo "Comparing HEAD against last release tag: $LAST_RELEASE_TAG"
-          
-          COMMITS_AHEAD=0
-          if git rev-parse "$LAST_RELEASE_TAG" >/dev/null 2>&1; then
-            COMMITS_AHEAD=$(git rev-list --count "${LAST_RELEASE_TAG}..HEAD")
-          else
-            COMMITS_AHEAD=1
-          fi
-          echo "Commits ahead of $LAST_RELEASE_TAG: $COMMITS_AHEAD"
-          
+
           FORCE_RELEASE="${{ github.event.inputs.force_release }}"
-          if [ "$COMMITS_AHEAD" -gt 0 ] || [ "$FORCE_RELEASE" = "true" ]; then
-            NEXT_D=$((HIGHEST_D + 1))
-            TARGET_TAG="v${BASE_VERSION}-d${NEXT_D}"
-            echo "Calculated new fork sub-version tag: $TARGET_TAG"
-            echo "target_tag=$TARGET_TAG" >> $GITHUB_OUTPUT
-            echo "new_release_needed=true" >> $GITHUB_OUTPUT
-            git tag "$TARGET_TAG"
-            git push origin "$TARGET_TAG" || echo "Tag push skipped or already exists"
-          else
-            echo "No new commits ahead of $LAST_RELEASE_TAG. Release not needed."
-            echo "new_release_needed=false" >> $GITHUB_OUTPUT
+          
+          # Check if this tag is already published or tagged on the fork
+          FORK_HAS_RELEASE=$(gh api "repos/DeepBlue9789/Echo-Music/releases/tags/${UPSTREAM_LATEST_TAG}" --jq .tag_name 2>/dev/null || echo "")
+          TAG_EXISTS_LOCALLY=$(git tag -l "$UPSTREAM_LATEST_TAG")
+
+          if [ -n "$FORK_HAS_RELEASE" ] || [ -n "$TAG_EXISTS_LOCALLY" ]; then
+            if [ "$FORCE_RELEASE" != "true" ]; then
+              echo "Official release $UPSTREAM_LATEST_TAG is already published on this fork. No new release needed."
+              echo "new_release_needed=false" >> $GITHUB_OUTPUT
+              exit 0
+            else
+              echo "Force release flag enabled. Proceeding with sync for $UPSTREAM_LATEST_TAG."
+            fi
           fi
 
+          echo "New official upstream release detected: $UPSTREAM_LATEST_TAG"
+          echo "new_release_needed=true" >> $GITHUB_OUTPUT
+          echo "target_tag=$UPSTREAM_LATEST_TAG" >> $GITHUB_OUTPUT
+
+      - name: Merge Upstream Release into Fork
+        if: steps.check_upstream.outputs.new_release_needed == 'true'
+        env:
+          UPSTREAM_TAG: ${{ steps.check_upstream.outputs.target_tag }}
+        run: |
+          echo "Merging official release tag $UPSTREAM_TAG into fork main..."
+          
+          # Ensure we are on main
+          git checkout main
+          
+          # Attempt merge of the official release tag
+          if ! git merge "$UPSTREAM_TAG" --no-ff -m "Merge official upstream release $UPSTREAM_TAG into fork"; then
+            echo "::error::Merge conflict encountered when merging official upstream release $UPSTREAM_TAG! Aborting merge to prevent publishing broken build."
+            git merge --abort
+            exit 1
+          fi
+
+          # Retain fork workflow files to prevent GitHub Actions permission rejection
+          git rm -rf --cached .github/workflows/ 2>/dev/null || true
+          git checkout HEAD -- .github/workflows/ 2>/dev/null || true
+          git clean -fd .github/workflows/ 2>/dev/null || true
+          git add -A
+          if ! git diff-index --quiet HEAD --; then
+            git commit --amend --no-edit || git commit -m "Merge official upstream release $UPSTREAM_TAG into fork"
+          fi
+
+          git push origin main
+          git tag "$UPSTREAM_TAG"
+          git push origin "$UPSTREAM_TAG"
+
   release:
-    name: Trigger Release Build
-    needs: sync
-    if: needs.sync.outputs.new_release_needed == 'true'
+    name: Trigger Official Release Build
+    needs: sync-official-release
+    if: needs.sync-official-release.outputs.new_release_needed == 'true'
     permissions:
       contents: write
     uses: ./.github/workflows/build-release.yml
     with:
-      tag_name: ${{ needs.sync.outputs.target_tag }}
+      tag_name: ${{ needs.sync-official-release.outputs.target_tag }}
     secrets: inherit

@@ -10,12 +10,22 @@ on:
         description: 'Release Tag (e.g. v1.2.3)'
         required: true
         default: 'v1.2.3'
+      custom_notes:
+        description: 'Optional custom release notes/summary'
+        required: false
+        type: string
+        default: ''
   workflow_call:
     inputs:
       tag_name:
         description: 'Release Tag (e.g. v1.2.3)'
         required: true
         type: string
+      custom_notes:
+        description: 'Optional custom release notes/summary'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   build:
@@ -108,6 +118,7 @@ jobs:
         id: prepare_assets
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CUSTOM_CHANGELOG: ${{ inputs.custom_notes }}
         run: |
           mkdir -p release-apks
           

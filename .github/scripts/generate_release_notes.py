@@ -34,7 +34,18 @@ def main():
         except Exception:
             commits = []
 
+        custom_notes = os.environ.get("CUSTOM_CHANGELOG", "").strip()
+        if not custom_notes and os.path.exists("release-apks/custom_notes.txt"):
+            with open("release-apks/custom_notes.txt", "r", encoding="utf-8") as nf:
+                custom_notes = nf.read().strip()
+
         filtered = []
+        if custom_notes:
+            for line in custom_notes.splitlines():
+                cl = line.strip().lstrip("-* ").strip()
+                if cl:
+                    filtered.append(cl)
+
         for c in commits:
             c_clean = c.strip()
             if not c_clean:
@@ -42,7 +53,8 @@ def main():
             low = c_clean.lower()
             if any(k in low for k in ["sync upstream", "merge branch", "merge remote", "[skip ci]"]):
                 continue
-            filtered.append(c_clean)
+            if c_clean not in filtered:
+                filtered.append(c_clean)
 
         if not filtered:
             filtered = ["Bug fixes, performance improvements, and fork enhancements."]

@@ -446,29 +446,40 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
   - `PlayerSettings.kt`: Mirrored in Player Settings as a Material 3 switch item beneath the Audio Quality selection.
 
 ### B. Fork Sub-Versioning & Upstream Sync Architecture (`-d<N>`)
-- **Problem**: Previously, `sync-upstream.yml` generated tags with timestamp suffixes (`v1.2.5-YYYYMMDDHHMM`) and `build-release.yml` used a hardcoded changelog listing all Listen Together changes from the beginning of the fork. When upstream released an update (e.g. 1.2.6), fork builds did not inherit upstream's official changelog.
-- **Version Release Convention**:
+- **Problem Resolved**: Previously, `sync-upstream.yml` merged routine upstream commits every 6 hours and treated them as fork edits, causing unintended releases (`v1.2.7-d2`, `v1.2.7-d3`). Additionally, pushes to `main` triggered automatic builds before testing was complete.
+- **Strict Separation of Release Triggers**:
   1. **Official Upstream Releases (`vX.Y.Z`)**:
-     - When official Echo Music publishes a new release (e.g. `v1.2.6`), `sync-upstream.yml` detects the new release, merges `upstream/main`, tags `v1.2.6`, and triggers the release builder.
-     - `build-release.yml` queries GitHub API `https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/tags/${TAG}` to extract the official upstream markdown release notes and downloads or parses `changelog.json`.
-     - The release published to `DeepBlue9789/Echo-Music` contains the official upstream changelog.
+     - Workflow: `.github/workflows/sync-upstream.yml` runs every 6 hours (`0 */6 * * *`) and on `workflow_dispatch`.
+     - It checks GitHub API `https://api.github.com/repos/EchoMusicApp/Echo-Music/releases/latest`.
+     - **Interim Commits Ignored**: If no new official release has been published, it logs "No new official release found" and exits immediately without modifying code or creating tags.
+     - **Official Release Sync**: When a new release tag (e.g. `v1.2.8`) is detected:
+       - Fetches the upstream tag.
+       - Attempts git merge into `main`.
+       - If merge conflicts occur: aborts cleanly (`git merge --abort`) and fails safely without releasing a broken build.
+       - If merge succeeds: preserves workflow files, pushes `main`, tags with official tag `v1.2.8`, and triggers `build-release.yml`.
+       - The release published to `DeepBlue9789/Echo-Music` inherits the exact official upstream version and changelog.
   2. **Fork Sub-Version Releases (`vX.Y.Z-d1`, `vX.Y.Z-d2`, ...)**:
-     - Any modifications pushed to the fork's `main` branch (or triggered via workflow dispatch) calculate the next sub-version suffix: `v${BASE_VERSION}-d<N+1>` based on existing tags.
-     - `build-release.yml` computes the git diff range `${PREV_TAG}..HEAD` (excluding bot/sync commits) to generate both the GitHub release markdown body and `changelog.json`.
-     - When upstream bumps to `v1.2.6`, the official `v1.2.6` release is published, and subsequent fork modifications automatically become `v1.2.6-d1`, `v1.2.6-d2`, etc.
+     - Normal pushes to `main` do **NOT** trigger release builds.
+     - Sub-version releases are triggered **on-demand** by the user via Antigravity after manual feature testing.
+     - **How Antigravity / User Triggers a Sub-Version Release**:
+       - Local CLI: `python .github/scripts/release_subversion.py --push [--notes "Optional custom notes"]`
+       - GitHub Web UI / Actions: `Actions -> Fork Sub-Version Release -> Run workflow` (passes `custom_notes`)
+       - Or `gh workflow run fork-release.yml -f custom_notes="..."`
+     - The script/workflow automatically finds the highest existing `-d` suffix for the current base version and creates the next tag (e.g., `v1.2.7-d4`).
+     - `generate_release_notes.py` extracts commit messages since the previous tag, prepends any custom notes, and creates both `release_body.md` and `release-apks/changelog.json`.
 - **Android `versionCode` Monotonic Guarantee**:
   - Android Package Manager blocks updates with `INSTALL_FAILED_VERSION_DOWNGRADE` if `versionCode` decreases or fails to increment.
-  - In `app/build.gradle.kts` and `build-release.yml`, version codes are computed using the decimal encoding:
+  - In `app/build.gradle.kts` and `build-release.yml`, version codes are computed using decimal encoding:
     $$\text{versionCode} = \text{MAJOR} \times 1,000,000 + \text{MINOR} \times 10,000 + \text{PATCH} \times 100 + D$$
   - Examples:
-    - Base `1.2.5`: $1,020,500$ (or fallback 155).
-    - Fork `1.2.5-d1`: $1,020,501$.
-    - Fork `1.2.5-d2`: $1,020,502$.
-    - Upstream `1.2.6`: $1,020,600$.
-    - Fork `1.2.6-d1`: $1,020,601$.
-  - This strictly guarantees $1,020,601 > 1,020,600 > 1,020,502 > 1,020,501 > 155$, preventing update install rejections.
+    - Base `1.2.7`: $1,020,700$.
+    - Fork `1.2.7-d1`: $1,020,701$.
+    - Fork `1.2.7-d2`: $1,020,702$.
+    - Upstream `1.2.8`: $1,020,800$.
+    - Fork `1.2.8-d1`: $1,020,801$.
+  - This strictly guarantees $1,020,801 > 1,020,800 > 1,020,702 > 1,020,701$, preventing update install rejections.
 - **In-App Update Engine (`echomusicupdater.kt`)**:
-  - `isNewerVersion()` parses `-d(\d+)` suffixes when base semver matches, correctly evaluating `1.2.5-d1 > 1.2.5`, `1.2.5-d2 > 1.2.5-d1`, and `1.2.6 > 1.2.5-d2`.
+  - `isNewerVersion()` parses `-d(\d+)` suffixes when base semver matches, correctly evaluating `1.2.7-d1 > 1.2.7`, `1.2.7-d2 > 1.2.7-d1`, and `1.2.8 > 1.2.7-d2`.
   - `fetchChangelogForVersion()` supports `-d<N>` tags for post-update "What's New" dialog rendering.
 - **Upstream Merge Safety**:
   - `sync-upstream.yml` continues to protect against workflow permissions rejections (`git rm -rf --cached .github/workflows/`, `git checkout HEAD -- .github/workflows/`, `git clean -fd .github/workflows/`).
