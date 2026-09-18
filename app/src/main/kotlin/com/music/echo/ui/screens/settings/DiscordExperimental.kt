@@ -34,184 +34,182 @@ import echo.music.iad1tya.ui.component.SwitchPreference
 import echo.music.iad1tya.utils.rememberPreference
 
 private val DiscordExperimentalButtonUrlOptions =
-    listOf("songurl", "artisturl", "albumurl", "custom")
+  listOf("songurl", "artisturl", "albumurl", "custom")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscordExperimental(navController: NavController) {
-    val context = LocalContext.current
+  val context = LocalContext.current
 
-    val (button1Label, onButton1LabelChange) =
-        rememberPreference(
-            key = DiscordActivityButton1LabelKey,
-            defaultValue = "Listen on YouTube Music",
-        )
-    val (button1Enabled, onButton1EnabledChange) =
-        rememberPreference(
-            key = DiscordActivityButton1EnabledKey,
-            defaultValue = true,
-        )
-    val (button2Label, onButton2LabelChange) =
-        rememberPreference(
-            key = DiscordActivityButton2LabelKey,
-            defaultValue = "Go to Echo Music",
-        )
-    val (button2Enabled, onButton2EnabledChange) =
-        rememberPreference(
-            key = DiscordActivityButton2EnabledKey,
-            defaultValue = true,
-        )
+  val (button1Label, onButton1LabelChange) =
+    rememberPreference(
+      key = DiscordActivityButton1LabelKey,
+      defaultValue = "Listen on YouTube Music",
+    )
+  val (button1Enabled, onButton1EnabledChange) =
+    rememberPreference(
+      key = DiscordActivityButton1EnabledKey,
+      defaultValue = true,
+    )
+  val (button2Label, onButton2LabelChange) =
+    rememberPreference(
+      key = DiscordActivityButton2LabelKey,
+      defaultValue = "Go to Echo Music",
+    )
+  val (button2Enabled, onButton2EnabledChange) =
+    rememberPreference(
+      key = DiscordActivityButton2EnabledKey,
+      defaultValue = true,
+    )
 
-    val (button1UrlSource, onButton1UrlSourceChange) =
-        rememberPreference(
-            key = DiscordActivityButton1UrlSourceKey,
-            defaultValue = "songurl",
-        )
-    val (button1CustomUrl, onButton1CustomUrlChange) =
-        rememberPreference(
-            key = DiscordActivityButton1CustomUrlKey,
-            defaultValue = "",
-        )
-    val (button2UrlSource, onButton2UrlSourceChange) =
-        rememberPreference(
-            key = DiscordActivityButton2UrlSourceKey,
-            defaultValue = "custom",
-        )
-    val (button2CustomUrl, onButton2CustomUrlChange) =
-        rememberPreference(
-            key = DiscordActivityButton2CustomUrlKey,
-            defaultValue = "https://echomusic.fun",
-        )
+  val (button1UrlSource, onButton1UrlSourceChange) =
+    rememberPreference(
+      key = DiscordActivityButton1UrlSourceKey,
+      defaultValue = "songurl",
+    )
+  val (button1CustomUrl, onButton1CustomUrlChange) =
+    rememberPreference(
+      key = DiscordActivityButton1CustomUrlKey,
+      defaultValue = "",
+    )
+  val (button2UrlSource, onButton2UrlSourceChange) =
+    rememberPreference(
+      key = DiscordActivityButton2UrlSourceKey,
+      defaultValue = "custom",
+    )
+  val (button2CustomUrl, onButton2CustomUrlChange) =
+    rememberPreference(
+      key = DiscordActivityButton2CustomUrlKey,
+      defaultValue = "https://echomusic.fun",
+    )
 
-    Scaffold { inner ->
-        Column(Modifier.fillMaxSize()) {
-            TopAppBar(
-                title = { Text(stringResource(R.string.experiment_settings)) },
-                navigationIcon = {
-                    IconButton(onClick = navController::navigateUp) {
-                        Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
-                    }
-                },
-            )
+  Scaffold { inner ->
+    Column(Modifier.fillMaxSize()) {
+      TopAppBar(
+        title = { Text(stringResource(R.string.experiment_settings)) },
+        navigationIcon = {
+          IconButton(onClick = navController::navigateUp) {
+            Icon(painterResource(R.drawable.arrow_back), contentDescription = null)
+          }
+        },
+      )
 
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                contentPadding =
-                    PaddingValues(
-                        bottom = inner.calculateBottomPadding() + 80.dp,
-                    ),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                item {
-                    PreferenceGroup(title = "Discord Button Options") {
-                        item {
-                            SwitchPreference(
-                                title = { Text("Show Button 1") },
-                                description = "Show Button 1 on Discord RPC",
-                                icon = { Icon(painterResource(R.drawable.add), null) },
-                                checked = button1Enabled,
-                                onCheckedChange = onButton1EnabledChange,
-                            )
-                        }
-
-                        if (button1Enabled) {
-                            item {
-                                EditTextPreference(
-                                    title = { Text("Button 1 Label") },
-                                    icon = { Icon(painterResource(R.drawable.edit), null) },
-                                    value = button1Label,
-                                    onValueChange = onButton1LabelChange,
-                                    isInputValid = { true },
-                                )
-                            }
-
-                            item {
-                                ListPreference(
-                                    title = { Text("Button 1 URL Source") },
-                                    icon = { Icon(painterResource(R.drawable.link), null) },
-                                    selectedValue = button1UrlSource,
-                                    values = DiscordExperimentalButtonUrlOptions,
-                                    valueText = { discordUrlSourceLabel(it) },
-                                    onValueSelected = onButton1UrlSourceChange,
-                                )
-                            }
-                        }
-
-                        if (button1Enabled && button1UrlSource == "custom") {
-                            item {
-                                EditTextPreference(
-                                    title = { Text("Button 1 Custom URL") },
-                                    icon = { Icon(painterResource(R.drawable.link), null) },
-                                    value = button1CustomUrl,
-                                    onValueChange = onButton1CustomUrlChange,
-                                    isInputValid = { true },
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    PreferenceGroup(title = "Discord Button 2 Options") {
-                        item {
-                            SwitchPreference(
-                                title = { Text("Show Button 2") },
-                                description = "Show Button 2 on Discord RPC",
-                                icon = { Icon(painterResource(R.drawable.add), null) },
-                                checked = button2Enabled,
-                                onCheckedChange = onButton2EnabledChange,
-                            )
-                        }
-
-                        if (button2Enabled) {
-                            item {
-                                EditTextPreference(
-                                    title = { Text("Button 2 Label") },
-                                    icon = { Icon(painterResource(R.drawable.edit), null) },
-                                    value = button2Label,
-                                    onValueChange = onButton2LabelChange,
-                                    isInputValid = { true },
-                                )
-                            }
-
-                            item {
-                                ListPreference(
-                                    title = { Text("Button 2 URL Source") },
-                                    icon = { Icon(painterResource(R.drawable.link), null) },
-                                    selectedValue = button2UrlSource,
-                                    values = DiscordExperimentalButtonUrlOptions,
-                                    valueText = { discordUrlSourceLabel(it) },
-                                    onValueSelected = onButton2UrlSourceChange,
-                                )
-                            }
-                        }
-
-                        if (button2Enabled && button2UrlSource == "custom") {
-                            item {
-                                EditTextPreference(
-                                    title = { Text("Button 2 Custom URL") },
-                                    icon = { Icon(painterResource(R.drawable.link), null) },
-                                    value = button2CustomUrl,
-                                    onValueChange = onButton2CustomUrlChange,
-                                    isInputValid = { true },
-                                )
-                            }
-                        }
-                    }
-                }
+      LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+        contentPadding =
+          PaddingValues(
+            bottom = inner.calculateBottomPadding() + 80.dp,
+          ),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+      ) {
+        item {
+          PreferenceGroup(title = "Discord Button Options") {
+            item {
+              SwitchPreference(
+                title = { Text("Show Button 1") },
+                description = "Show Button 1 on Discord RPC",
+                icon = { Icon(painterResource(R.drawable.add), null) },
+                checked = button1Enabled,
+                onCheckedChange = onButton1EnabledChange,
+              )
             }
+
+            if (button1Enabled) {
+              item {
+                EditTextPreference(
+                  title = { Text("Button 1 Label") },
+                  icon = { Icon(painterResource(R.drawable.edit), null) },
+                  value = button1Label,
+                  onValueChange = onButton1LabelChange,
+                  isInputValid = { true },
+                )
+              }
+
+              item {
+                ListPreference(
+                  title = { Text("Button 1 URL Source") },
+                  icon = { Icon(painterResource(R.drawable.link), null) },
+                  selectedValue = button1UrlSource,
+                  values = DiscordExperimentalButtonUrlOptions,
+                  valueText = { discordUrlSourceLabel(it) },
+                  onValueSelected = onButton1UrlSourceChange,
+                )
+              }
+            }
+
+            if (button1Enabled && button1UrlSource == "custom") {
+              item {
+                EditTextPreference(
+                  title = { Text("Button 1 Custom URL") },
+                  icon = { Icon(painterResource(R.drawable.link), null) },
+                  value = button1CustomUrl,
+                  onValueChange = onButton1CustomUrlChange,
+                  isInputValid = { true },
+                )
+              }
+            }
+          }
         }
+
+        item {
+          PreferenceGroup(title = "Discord Button 2 Options") {
+            item {
+              SwitchPreference(
+                title = { Text("Show Button 2") },
+                description = "Show Button 2 on Discord RPC",
+                icon = { Icon(painterResource(R.drawable.add), null) },
+                checked = button2Enabled,
+                onCheckedChange = onButton2EnabledChange,
+              )
+            }
+
+            if (button2Enabled) {
+              item {
+                EditTextPreference(
+                  title = { Text("Button 2 Label") },
+                  icon = { Icon(painterResource(R.drawable.edit), null) },
+                  value = button2Label,
+                  onValueChange = onButton2LabelChange,
+                  isInputValid = { true },
+                )
+              }
+
+              item {
+                ListPreference(
+                  title = { Text("Button 2 URL Source") },
+                  icon = { Icon(painterResource(R.drawable.link), null) },
+                  selectedValue = button2UrlSource,
+                  values = DiscordExperimentalButtonUrlOptions,
+                  valueText = { discordUrlSourceLabel(it) },
+                  onValueSelected = onButton2UrlSourceChange,
+                )
+              }
+            }
+
+            if (button2Enabled && button2UrlSource == "custom") {
+              item {
+                EditTextPreference(
+                  title = { Text("Button 2 Custom URL") },
+                  icon = { Icon(painterResource(R.drawable.link), null) },
+                  value = button2CustomUrl,
+                  onValueChange = onButton2CustomUrlChange,
+                  isInputValid = { true },
+                )
+              }
+            }
+          }
+        }
+      }
     }
+  }
 }
 
 @Composable
 fun discordUrlSourceLabel(source: String): String =
-    when (source) {
-        "songurl" -> stringResource(R.string.discord_url_source_song)
-        "artisturl" -> stringResource(R.string.discord_url_source_artist)
-        "albumurl" -> stringResource(R.string.discord_url_source_album)
-        "custom" -> stringResource(R.string.discord_url_source_custom)
-        else -> source
-    }
+  when (source) {
+    "songurl" -> stringResource(R.string.discord_url_source_song)
+    "artisturl" -> stringResource(R.string.discord_url_source_artist)
+    "albumurl" -> stringResource(R.string.discord_url_source_album)
+    "custom" -> stringResource(R.string.discord_url_source_custom)
+    else -> source
+  }
