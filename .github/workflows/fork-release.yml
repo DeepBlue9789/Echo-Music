@@ -37,7 +37,7 @@ jobs:
 
       - name: Fetch All Tags
         run: |
-          git fetch origin --tags
+          git fetch origin --tags --force || true
 
       - name: Compute Next Sub-Version Tag
         id: compute_tag
