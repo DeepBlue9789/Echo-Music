@@ -112,8 +112,8 @@ jobs:
           fi
 
           git push origin main
-          git tag "$UPSTREAM_TAG"
-          git push origin "$UPSTREAM_TAG"
+          git tag -f "$UPSTREAM_TAG"
+          git push origin "$UPSTREAM_TAG" --force
 
   release:
     name: Trigger Official Release Build
