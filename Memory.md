@@ -484,3 +484,38 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - **Upstream Merge Safety**:
   - `sync-upstream.yml` continues to protect against workflow permissions rejections (`git rm -rf --cached .github/workflows/`, `git checkout HEAD -- .github/workflows/`, `git clean -fd .github/workflows/`).
   - `app/build.gradle.kts` uses dynamic environment variables (`APP_VERSION_NAME`, `APP_VERSION_CODE`) with safe fallbacks, preventing merge conflicts when upstream bumps version strings.
+
+---
+
+## 16. Upstream Release v1.3.0 Synchronization & CI Detection Pipeline Fix
+
+### A. CI Workflow False-Positive 404 Bug (`sync-upstream.yml`)
+- **Problem**: When official Echo Music released `v1.3.0`, scheduled CI runs of `.github/workflows/sync-upstream.yml` exited immediately without merging or releasing.
+- **Root Cause**:
+  - Line 64 checked release presence via `FORK_HAS_RELEASE=$(gh api "repos/DeepBlue9789/Echo-Music/releases/tags/${UPSTREAM_LATEST_TAG}" --jq .tag_name 2>/dev/null || echo "")`.
+  - When a release does not exist on GitHub, `gh api` dumps the HTTP 404 error JSON payload (`{"message":"Not Found", ...}`) to **STDOUT**, sending only the error status line to STDERR.
+  - Redirecting `2>/dev/null` silenced STDERR, but left the 404 response body on STDOUT.
+  - As a result, `$FORK_HAS_RELEASE` was assigned the non-empty 404 JSON body string, causing `[ -n "$FORK_HAS_RELEASE" ]` to evaluate to `true`.
+  - The workflow logged `"Official release v1.3.0 is already published on this fork. No new release needed."` and exited cleanly.
+- **Resolution**:
+  - Replaced the string-capture evaluation with `gh release view "$UPSTREAM_LATEST_TAG" --repo DeepBlue9789/Echo-Music >/dev/null 2>&1`, which returns exit code 0 when found and non-zero when not found without capturing stdout.
+  - Added explicit upstream tag fetch (`git fetch upstream tag "$UPSTREAM_TAG" --no-tags`) prior to `git merge "$UPSTREAM_TAG"`.
+
+### B. Upstream v1.3.0 Merge & Architecture Harmonization
+- **Major Features Synced from v1.3.0**:
+  1. **Liquid Glass UI & Shader Backdrop**: Liquid Glass blur, vibrancy, lens amount/height, chromatic aberration, and dynamic layer backdrops across Player, MiniPlayer, and NavHost.
+  2. **Cronet HTTP/3 QUIC Streaming Engine**: Initialized `CronetEngine` with QUIC, HTTP/2, and Brotli support, with seamless fallback to `OkHttpDataSource`.
+  3. **Aggressive Buffer & Zero-Latency Tuning**: Set 6-minute forward buffer (`360,000ms`), 150ms instant playback start threshold, and AOT byte preloading using `CacheWriter`.
+  4. **Force Opus by Default**: Enforced default migration to YouTube Opus / HTTP/3.
+  5. **New App Icons**: Billie Eilish, Echo Cat, Eko, Legacy Pixel, New Pixel, Tamil Naidu, and Weird Cat themes.
+- **Fork Feature Preservation**:
+  1. **Listen Together P2P Engine**: Preserved real-time sync, P2P WebSocket server, client drift compensation, `handleListenTogetherSettingsIntent`, and safe nullable `LocalPlayerConnection`.
+  2. **JioSaavn 320kbps Audio Architecture**: Maintained JioSaavn 320k stream resolution and preloading with fallback to YouTube Opus.
+  3. **Wi-Fi Only Conservation**: Maintained `jio_saavn_on_wifi_only` preference and `isWifiConnected` guards.
+  4. **Resilient Akamai Edge DNS**: Preserved `JioSaavnDns` Anycast edge IP lookups and DoH fallback inside `createOkHttpFactory()`.
+- **Dependency Cleanups**:
+  - Removed obsolete `jsoup`, `play-services-auth`, `google-api-client-android`, `google-api-services-drive`, and `androidx-browser` from `app/build.gradle.kts` and `gradle/libs.versions.toml`.
+  - Retained `java-websocket` for Listen Together P2P networking.
+- **Compilation Verification**:
+  - Verified `./gradlew compileUniversalGmsDebugKotlin` succeeds cleanly across all 190 tasks.
+
