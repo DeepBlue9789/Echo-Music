@@ -61,7 +61,11 @@ jobs:
           FORCE_RELEASE="${{ github.event.inputs.force_release }}"
           
           # Check if this tag is already published or tagged on the fork
-          FORK_HAS_RELEASE=$(gh api "repos/DeepBlue9789/Echo-Music/releases/tags/${UPSTREAM_LATEST_TAG}" --jq .tag_name 2>/dev/null || echo "")
+          if gh release view "$UPSTREAM_LATEST_TAG" --repo DeepBlue9789/Echo-Music >/dev/null 2>&1; then
+            FORK_HAS_RELEASE="true"
+          else
+            FORK_HAS_RELEASE=""
+          fi
           TAG_EXISTS_LOCALLY=$(git tag -l "$UPSTREAM_LATEST_TAG")
 
           if [ -n "$FORK_HAS_RELEASE" ] || [ -n "$TAG_EXISTS_LOCALLY" ]; then
@@ -88,6 +92,9 @@ jobs:
           # Ensure we are on main
           git checkout main
           
+          # Fetch the specific upstream release tag cleanly without clobbering other tags
+          git fetch upstream tag "$UPSTREAM_TAG" --no-tags
+
           # Attempt merge of the official release tag
           if ! git merge "$UPSTREAM_TAG" --no-ff -m "Merge official upstream release $UPSTREAM_TAG into fork"; then
             echo "::error::Merge conflict encountered when merging official upstream release $UPSTREAM_TAG! Aborting merge to prevent publishing broken build."
