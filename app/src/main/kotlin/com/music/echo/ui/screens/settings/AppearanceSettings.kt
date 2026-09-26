@@ -89,6 +89,7 @@ import echo.music.iad1tya.constants.PlayerButtonsStyle
 import echo.music.iad1tya.constants.PlayerButtonsStyleKey
 import echo.music.iad1tya.constants.RotatingThumbnailKey
 import echo.music.iad1tya.constants.SelectedThemeColorKey
+import echo.music.iad1tya.constants.ShowBottomPlaylistKey
 import echo.music.iad1tya.constants.ShowCachedPlaylistKey
 import echo.music.iad1tya.constants.ShowCommentButtonKey
 import echo.music.iad1tya.constants.ShowDownloadedPlaylistKey
@@ -273,6 +274,8 @@ fun AppearanceSettings(
     rememberPreference(ShowExportedPlaylistKey, defaultValue = true)
   val (showTopPlaylist, onShowTopPlaylistChange) =
     rememberPreference(ShowTopPlaylistKey, defaultValue = true)
+  val (showBottomPlaylist, onShowBottomPlaylistChange) =
+    rememberPreference(ShowBottomPlaylistKey, defaultValue = true)
   val (showCachedPlaylist, onShowCachedPlaylistChange) =
     rememberPreference(ShowCachedPlaylistKey, defaultValue = true)
   val (showCommentButton, onShowCommentButtonChange) =
@@ -508,6 +511,7 @@ fun AppearanceSettings(
           PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
           PlayerBackgroundStyle.APPLE_MUSIC -> stringResource(R.string.apple_music)
           PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
+PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
         }
       }
     )
@@ -530,6 +534,7 @@ fun AppearanceSettings(
           PlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
           PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
           PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
+PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
           else -> stringResource(R.string.unknown)
         }
       }
@@ -929,6 +934,14 @@ fun AppearanceSettings(
 
           add(
             Material3SettingsItem(
+              icon = painterResource(R.drawable.water_drop),
+              title = { Text(stringResource(R.string.liquid_glass)) },
+              description = { Text(stringResource(R.string.liquid_glass_settings)) },
+              onClick = { navController.navigate("settings/appearance/liquidglass") }
+            )
+          )
+          add(
+            Material3SettingsItem(
               isHighlighted = (highlightKey == stringResource(R.string.enable_high_refresh_rate)),
               icon = painterResource(R.drawable.speed),
               title = { Text(stringResource(R.string.enable_high_refresh_rate)) },
@@ -1004,6 +1017,7 @@ fun AppearanceSettings(
                     PlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
                     PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
                     PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
+PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
                     else -> stringResource(R.string.follow_theme)
                   }
                 )
@@ -1100,6 +1114,7 @@ fun AppearanceSettings(
                   PlayerBackgroundStyle.GLOW_ANIMATED -> stringResource(R.string.glow_animated)
                   PlayerBackgroundStyle.APPLE_MUSIC -> stringResource(R.string.apple_music)
                   PlayerBackgroundStyle.LIVE_MESH -> stringResource(R.string.live_mesh)
+PlayerBackgroundStyle.LIQUID_GLASS -> stringResource(R.string.player_background_liquid_glass)
                 }
               )
             },
@@ -1633,6 +1648,22 @@ fun AppearanceSettings(
 
     Material3SettingsGroup(
       scrollState = scrollState,
+      title = "Ambient Mode",
+      items = listOf(
+        Material3SettingsItem(
+          isHighlighted = false,
+          icon = painterResource(R.drawable.image),
+          title = { Text("Ambient Mode Options") },
+          description = { Text("Customize the appearance of the ambient player") },
+          onClick = { navController.navigate("ambient_settings") }
+        )
+      )
+    )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    Material3SettingsGroup(
+      scrollState = scrollState,
       title = stringResource(R.string.misc),
       items =
         listOf(
@@ -1881,6 +1912,29 @@ fun AppearanceSettings(
               )
             },
             onClick = { onShowTopPlaylistChange(!showTopPlaylist) }
+          ),
+          Material3SettingsItem(
+            isHighlighted = (highlightKey == stringResource(R.string.show_bottom_playlist)),
+            icon = painterResource(R.drawable.trending_down),
+            title = { Text(stringResource(R.string.show_bottom_playlist)) },
+            description = { Text(stringResource(R.string.show_bottom_playlist_desc)) },
+            trailingContent = {
+              Switch(
+                checked = showBottomPlaylist,
+                onCheckedChange = onShowBottomPlaylistChange,
+                thumbContent = {
+                  Icon(
+                    painter =
+                      painterResource(
+                        id = if (showBottomPlaylist) R.drawable.check else R.drawable.close
+                      ),
+                    contentDescription = null,
+                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                  )
+                }
+              )
+            },
+            onClick = { onShowBottomPlaylistChange(!showBottomPlaylist) }
           ),
           Material3SettingsItem(
             isHighlighted = (highlightKey == stringResource(R.string.show_cached_playlist)),

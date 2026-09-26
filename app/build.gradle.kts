@@ -285,20 +285,16 @@ dependencies {
     implementation(project(":playback"))
 
 
+    // GMS Location Services for high-accuracy weather AI context
+    "gmsImplementation"(libs.play.services.location)
 
     // Firebase - GMS flavor only (excluded from F-Droid / FOSS builds)
     "gmsImplementation"(platform("com.google.firebase:firebase-bom:33.1.0"))
     "gmsImplementation"("com.google.firebase:firebase-analytics")
     "gmsImplementation"("com.google.firebase:firebase-crashlytics")
 
-    // Google Drive Sync - GMS flavor only
-    "gmsImplementation"(libs.play.services.auth)
+    // GMS Location Services for high-accuracy weather AI context
     "gmsImplementation"(libs.play.services.location)
-    "gmsImplementation"(libs.google.api.client.android)
-    "gmsImplementation"(libs.google.api.services.drive) {
-        exclude(group = "org.apache.httpcomponents")
-    }
-
 
     implementation(libs.haze)
     implementation(libs.guava)
@@ -327,7 +323,6 @@ dependencies {
     implementation(libs.androidx.adaptive.navigation)
     implementation(libs.palette)
     implementation(libs.materialKolor)
-    implementation(libs.androidx.browser)
 
     implementation(libs.appcompat)
 
@@ -343,6 +338,8 @@ dependencies {
     implementation(libs.media3.hls)
     implementation(libs.media3.ui)
     implementation(libs.media3.okhttp)
+    implementation(libs.media3.cronet)
+    implementation("com.google.android.gms:play-services-cronet:18.0.1")
 
     // Google Cast - only included in GMS flavor (not available in F-Droid/FOSS builds)
     "gmsImplementation"(libs.mediarouter)
@@ -357,7 +354,6 @@ dependencies {
     implementation(libs.apache.lang3)
 
     implementation(libs.hilt)
-    implementation(libs.jsoup)
     ksp(libs.hilt.compiler)
 
     implementation(project(":innertube"))

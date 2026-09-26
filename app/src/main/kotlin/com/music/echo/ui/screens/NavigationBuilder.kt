@@ -33,6 +33,7 @@ import echo.music.iad1tya.ui.screens.equalizer.axion.AxionEqScreen
 import echo.music.iad1tya.ui.screens.library.LibraryScreen
 import echo.music.iad1tya.ui.screens.library.LocalSongScreen
 import echo.music.iad1tya.ui.screens.playlist.AutoPlaylistScreen
+import echo.music.iad1tya.ui.screens.playlist.BottomPlaylistScreen
 import echo.music.iad1tya.ui.screens.playlist.CachePlaylistScreen
 import echo.music.iad1tya.ui.screens.playlist.LocalPlaylistScreen
 import echo.music.iad1tya.ui.screens.playlist.OnlinePlaylistScreen
@@ -46,6 +47,7 @@ import echo.music.iad1tya.ui.screens.settings.AccountSettingsScreen
 import echo.music.iad1tya.ui.screens.settings.AiSettings
 import echo.music.iad1tya.ui.screens.settings.AppIconSettingsScreen
 import echo.music.iad1tya.ui.screens.settings.AppearanceSettings
+import echo.music.iad1tya.ui.screens.settings.GlassEffectSettings
 import echo.music.iad1tya.ui.screens.settings.BackupAndRestore
 import echo.music.iad1tya.ui.screens.settings.ContentSettings
 import echo.music.iad1tya.ui.screens.settings.DarkMode
@@ -252,6 +254,16 @@ fun NavGraphBuilder.navigationBuilder(
   }
 
   composable(
+    route = "bottom_playlist/{bottom}",
+    arguments =
+      listOf(
+        navArgument("bottom") { type = NavType.StringType },
+      ),
+  ) {
+    BottomPlaylistScreen(navController, scrollBehavior)
+  }
+
+  composable(
     route = "youtube_browse/{browseId}?params={params}",
     arguments =
       listOf(
@@ -304,6 +316,8 @@ fun NavGraphBuilder.navigationBuilder(
     )
   }
 
+  composable("ambient_settings") { echo.music.iad1tya.ui.screens.settings.AmbientSettingsScreen(navController) }
+
   composable(
     route = "settings/appearance?highlightKey={highlightKey}",
     arguments =
@@ -327,6 +341,10 @@ fun NavGraphBuilder.navigationBuilder(
 
   composable("settings/appearance/app_icon") {
     AppIconSettingsScreen(navController, activity, snackbarHostState)
+  }
+  
+  composable("settings/appearance/liquidglass") {
+    GlassEffectSettings(navController, scrollBehavior)
   }
 
   composable(

@@ -71,6 +71,8 @@ import echo.music.iad1tya.constants.EnableLrcLibKey
 import echo.music.iad1tya.constants.EnablePaxsenixKey
 import echo.music.iad1tya.constants.EnableSimpMusicKey
 import echo.music.iad1tya.constants.EnableYouLyPlusKey
+import echo.music.iad1tya.constants.EnableCronetKey
+import echo.music.iad1tya.constants.ForceOpusKey
 import echo.music.iad1tya.constants.FetchFasterLyricsKey
 import echo.music.iad1tya.constants.HideExplicitKey
 import echo.music.iad1tya.constants.HideVideoSongsKey
@@ -171,6 +173,10 @@ fun ContentSettings(
     rememberPreference(key = ContentCountryKey, defaultValue = "system")
   val (suggestionRegion, onSuggestionRegionChange) =
     rememberPreference(key = SuggestionRegionKey, defaultValue = "system")
+  val (forceOpus, onForceOpusChange) =
+    rememberPreference(key = ForceOpusKey, defaultValue = true)
+  val (enableCronet, onEnableCronetChange) =
+    rememberPreference(key = EnableCronetKey, defaultValue = true)
   val (hideExplicit, onHideExplicitChange) =
     rememberPreference(key = HideExplicitKey, defaultValue = false)
   val (hideVideoSongs, onHideVideoSongsChange) =
@@ -648,6 +654,52 @@ fun ContentSettings(
       title = stringResource(R.string.general),
       items =
         listOf(
+          Material3SettingsItem(
+            isHighlighted = (highlightKey == "Force Opus Audio"),
+            icon = painterResource(R.drawable.music_note),
+            title = { Text("Force Opus Audio (itag 251)") },
+            description = { Text("Force WebM/Opus streaming. Halves data usage and buffers 2x faster, but may lower raw bitrate.") },
+            trailingContent = {
+              Switch(
+                checked = forceOpus,
+                onCheckedChange = onForceOpusChange,
+                thumbContent = {
+                  Icon(
+                    painter =
+                      painterResource(
+                        id = if (forceOpus) R.drawable.check else R.drawable.close
+                      ),
+                    contentDescription = null,
+                    modifier = Modifier.size(SwitchDefaults.IconSize),
+                  )
+                },
+              )
+            },
+            onClick = { onForceOpusChange(!forceOpus) }
+          ),
+          Material3SettingsItem(
+            isHighlighted = (highlightKey == "Enable HTTP/3 (Cronet)"),
+            icon = painterResource(R.drawable.speed),
+            title = { Text("Enable HTTP/3 (Cronet)") },
+            description = { Text("Use QUIC over UDP for zero-latency streaming (Restart required)") },
+            trailingContent = {
+              Switch(
+                checked = enableCronet,
+                onCheckedChange = onEnableCronetChange,
+                thumbContent = {
+                  Icon(
+                    painter =
+                      painterResource(
+                        id = if (enableCronet) R.drawable.check else R.drawable.close
+                      ),
+                    contentDescription = null,
+                    modifier = Modifier.size(SwitchDefaults.IconSize),
+                  )
+                },
+              )
+            },
+            onClick = { onEnableCronetChange(!enableCronet) }
+          ),
           Material3SettingsItem(
             isHighlighted = (highlightKey == stringResource(R.string.content_language)),
             icon = painterResource(R.drawable.language),
