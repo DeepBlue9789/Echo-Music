@@ -1686,8 +1686,7 @@ fun Lyrics(
                                         }
                                     }
                                 }
-                                
-                                
+
                                 if (hasActiveTranslations) {
                                     val translatedText by item.translatedTextFlow.collectAsState()
                                     translatedText?.let { translated ->
@@ -1838,7 +1837,6 @@ fun Lyrics(
                                 )
                             }
                         }
-                        
                         
                         if (hasActiveTranslations && 
                             lyricsAnimationStyle != LyricsAnimationStyle.LYRICS_V2 && 

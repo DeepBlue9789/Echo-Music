@@ -710,6 +710,11 @@ class MainActivity : ComponentActivity() {
         val homeViewModel: HomeViewModel = hiltViewModel()
         val accountImageUrl by homeViewModel.accountImageUrl.collectAsState()
         val navBackStackEntry by navController.currentBackStackEntryAsState()
+        val onRailSearchLongClick: () -> Unit =
+          remember(navController) {
+            { } // User requested to disable opening the recognize music page on long press
+          }
+
         val (previousTab, setPreviousTab) = rememberSaveable { mutableStateOf("home") }
 
         val (listenTogetherInTopBar) =
@@ -1045,7 +1050,7 @@ class MainActivity : ComponentActivity() {
             liquidGlassMiniPlayerEnabled, liquidGlassNavBarEnabled,
         ) {
             GlassEffectConfig(
-                globalEnabled = liquidGlassGlobalEnabled && useFloatingNavBar,
+                globalEnabled = liquidGlassGlobalEnabled,
                 vibrancy = liquidGlassVibrancy,
                 blurRadius = liquidGlassBlurRadius,
                 lensHeight = liquidGlassLensHeight,
@@ -1240,6 +1245,7 @@ class MainActivity : ComponentActivity() {
                       onAccessoryClick = { playerBottomSheetState.expandSoft() },
                       onMusicRecognitionClick = onMusicRecognitionClick,
                       musicRecognitionContentDescription = stringResource(R.string.recognition),
+                      onSearchLongClick = onRailSearchLongClick,
                       modifier =
                         Modifier.align(Alignment.BottomCenter)
                           .padding(horizontal = 16.dp)
@@ -1280,6 +1286,7 @@ class MainActivity : ComponentActivity() {
                         },
                         aiHubIconRes = R.drawable.sparks,
                         aiHubContentDescription = stringResource(R.string.ai_lyrics_translation),
+                        onSearchLongClick = onRailSearchLongClick,
                         isSelected = { screen ->
                           currentRoute == screen.route ||
                             currentRoute?.startsWith("${screen.route}/") == true
@@ -1385,10 +1392,7 @@ class MainActivity : ComponentActivity() {
                   }
                 }
 
-              val onRailSearchLongClick: () -> Unit =
-                remember(navController) {
-                  { navController.navigate("recognition") { launchSingleTop = true } }
-                }
+
 
               if (showRail && currentRoute != "update") {
                 AppNavigationRail(

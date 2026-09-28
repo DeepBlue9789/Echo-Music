@@ -65,6 +65,20 @@ Echo Music delivers a seamless, premium listening experience by leveraging YouTu
         <img src="Screenshots/library.png" alt="Music Library" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
       </td>
     </tr>
+    <tr>
+      <td align="center" style="padding: 15px; border: none;">
+        <b>Liquid Glass Default</b><br><br>
+        <img src="Screenshots/Liquid%20Glass%20Default.png" alt="Liquid Glass Default" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
+      </td>
+      <td align="center" style="padding: 15px; border: none;">
+        <b>Liquid Glass (Apple)</b><br><br>
+        <img src="Screenshots/Liquid%20Glass%20Apple%20Inspired.png" alt="Liquid Glass (Apple)" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
+      </td>
+      <td align="center" style="padding: 15px; border: none;">
+        <b>Liquid Glass (Scrolling)</b><br><br>
+        <img src="Screenshots/Liquid%20Glass%20Apple%20Inspired%20(While%20Scrolling).png" alt="Liquid Glass (Scrolling)" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
+      </td>
+    </tr>
   </table>
 </div>
 
@@ -90,6 +104,7 @@ Echo Music delivers a seamless, premium listening experience by leveraging YouTu
 <br>
 
 - **Ad-Free** — Stream without any interruptions.
+- **InnerTubeX Engine** — Highly resilient playback engine bypassing age-restrictions and BotGuard with chunked caching and zero-latency read-ahead.
 - **Data Saver Mode** — Reduce data consumption when streaming on cellular networks.
 - **Seamless Playback** — Switch effortlessly between audio-only and video modes.
 - **Background Playback** — Listen while using other apps or with the screen off.
@@ -263,6 +278,7 @@ Echo Music stands on the shoulders of several excellent open-source projects. Si
 | **[SimpMusic](https://github.com/maxrave-dev/SimpMusic)**                                                                 | Lyrics implementation reference                     |
 | **[Music Recognizer](https://github.com/aleksey-saenko/MusicRecognizer)**                                                 | Audio recognition (Echo Find)                       |
 | **[BravePipe](https://github.com/bravepipeproject/BravePipe)**                                                            | Decryption handling and backup playback engine      |
+| **[InnerTubeX](https://github.com/MetrolistGroup/innertubex)**                                                            | Advanced stream resolution, playback resilience, and BotGuard bypass      |
 
 ---
 

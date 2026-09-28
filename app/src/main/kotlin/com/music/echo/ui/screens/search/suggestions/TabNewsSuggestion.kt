@@ -1,5 +1,6 @@
 package echo.music.iad1tya.ui.screens.search.suggestions
 
+import com.valentinilk.shimmer.shimmer
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -298,17 +299,17 @@ fun TrendingAppleMusicSection(
                 RoundedCornerShape(
                   topStart = 24.dp,
                   topEnd = 24.dp,
-                  bottomStart = 4.dp,
-                  bottomEnd = 4.dp
+                  bottomStart = 2.dp,
+                  bottomEnd = 2.dp
                 )
               isBottom ->
                 RoundedCornerShape(
-                  topStart = 4.dp,
-                  topEnd = 4.dp,
+                  topStart = 2.dp,
+                  topEnd = 2.dp,
                   bottomStart = 24.dp,
                   bottomEnd = 24.dp
                 )
-              else -> RoundedCornerShape(4.dp)
+              else -> RoundedCornerShape(2.dp)
             }
           if (isMoreCard) {
             Row(
@@ -339,7 +340,12 @@ fun TrendingAppleMusicSection(
             val track = displayTracks[i]
             Row(
               modifier =
-                Modifier.fillMaxWidth().clickable { onTrackClick(track) }.padding(vertical = 6.dp),
+                Modifier.fillMaxWidth()
+                  .padding(vertical = 1.dp)
+                  .clip(shape)
+                  .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                  .clickable { onTrackClick(track) }
+                  .padding(horizontal = 8.dp, vertical = 8.dp),
               verticalAlignment = Alignment.CenterVertically
             ) {
               Text(
@@ -451,7 +457,7 @@ fun TopArtistsSection(artists: List<SuggestionArtist>, onArtistClick: (Suggestio
       items(artists) { artist ->
         Column(
           horizontalAlignment = Alignment.CenterHorizontally,
-          modifier = Modifier.width(100.dp).clickable { onArtistClick(artist) }
+          modifier = Modifier.width(120.dp).clickable { onArtistClick(artist) }
         ) {
           Box(contentAlignment = Alignment.BottomEnd) {
             SubcomposeAsyncImage(
@@ -459,12 +465,10 @@ fun TopArtistsSection(artists: List<SuggestionArtist>, onArtistClick: (Suggestio
               contentDescription = artist.name,
               contentScale = ContentScale.Crop,
               loading = {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                  LoadingIndicator()
-                }
+                Box(Modifier.fillMaxSize().shimmer().background(MaterialTheme.colorScheme.surfaceVariant))
               },
               modifier =
-                Modifier.size(100.dp)
+                Modifier.size(120.dp)
                   .clip(RoundedCornerShape(12.dp))
                   .background(MaterialTheme.colorScheme.surfaceVariant)
             )
@@ -540,9 +544,7 @@ fun TrendingAlbumsSection(
               contentDescription = album.title,
               contentScale = ContentScale.Crop,
               loading = {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                  LoadingIndicator()
-                }
+                Box(Modifier.fillMaxSize().shimmer().background(MaterialTheme.colorScheme.surfaceVariant))
               },
               modifier =
                 Modifier.size(120.dp)
