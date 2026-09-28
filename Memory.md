@@ -519,3 +519,33 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - **Compilation Verification**:
   - Verified `./gradlew compileUniversalGmsDebugKotlin` succeeds cleanly across all 190 tasks.
 
+---
+
+## 17. Upstream Release v1.4 Synchronization & Resilient Merge Architecture
+
+### A. Root Cause of Upstream Merge Conflicts
+- **Whitespace / Indentation Drift**: Upstream uses 2-space indentation (their ktlint/editorconfig standard). In previous fork iterations, key files (`MusicService.kt`, `AppModule.kt`, `Lyrics.kt`, `app/build.gradle.kts`) were reformatted to 4 spaces. Whenever upstream modified a line, Git's standard 3-way merge could not match adjacent lines due to whitespace divergence, flagging hundreds or thousands of lines in conflict.
+- **Shared File Modifications**: Upstream hardcodes `versionCode = 161` and `versionName = "1.4"`, disabled Cronet (`val useCronet = false`), added an 8-second grace period before prefetching (`delay(8000L)`), and updated the Listen Together server domain.
+- **Workflow Rigidity**: In `.github/workflows/sync-upstream.yml`, the merge step executed a rigid `git merge "$UPSTREAM_TAG"` with zero conflict recovery, immediately aborting on any conflict.
+
+### B. Resilient Merge Architecture
+1. **Whitespace Tolerance (`-Xignore-space-change`)**:
+   - In `.github/workflows/sync-upstream.yml`, switched to `git merge -Xignore-space-change "$UPSTREAM_TAG" --no-ff`.
+   - Automatically eliminated whitespace conflicts; `AppModule.kt` merged completely automatically, and `MusicService.kt` shrank from thousands of lines to two small 5-line chunks.
+2. **Automated Conflict Resolution Helper (`.github/scripts/resolve_upstream_merge.py`)**:
+   - Automatically invoked by CI if conflicts occur during upstream release syncs.
+   - Dynamically parses upstream's new `versionCode` and `versionName` and updates `app/build.gradle.kts` fallbacks while preserving the fork's dynamic environment-variable / sub-versioning logic.
+   - Retains fork features in `MusicService.kt` (dataStore Cronet toggle, JioSaavn 320k resolution) and `Lyrics.kt` (`showRomanizedLyrics`).
+   - Verifies resolution and marks resolved files with `git add`.
+3. **Workflow Retention Safety**:
+   - Retains fork workflows (`git rm -rf --cached .github/workflows/`, `git checkout HEAD -- .github/workflows/`, `git clean -fd .github/workflows/`) to prevent GitHub Actions permission rejections.
+
+### C. Major Features Synced from Upstream v1.4
+- **Chunked HTTP Data Source & Dynamic LRU Eviction**: Introduced `ChunkedDataSource` (1MB chunked caching) and `DynamicLruCacheEvictor` for smoother streaming and smarter cache eviction.
+- **Detailed Listening History & Summary**: Added `DetailedListeningHistoryScreen`, `ListeningSummaryScreen`, and `ExpressiveBarChart` for in-depth listening analytics.
+- **New Fonts & Custom Icons**: Sabrina & Sabrina 2 icon themes, Outfit and Plus Jakarta Sans bundled fonts with dedicated `FontSelectionScreen`.
+- **InnerTubeX Integration & YouTube Client Updates**: Updated cipher/n-sig scrapers, `InnerTubeXResolver`, and enhanced stream fallback routing.
+
+### D. Compilation Verification
+- Ran `./gradlew compileUniversalGmsDebugKotlin` — passed cleanly across all 190 tasks with 0 errors (`BUILD SUCCESSFUL in 4m 13s`).
+

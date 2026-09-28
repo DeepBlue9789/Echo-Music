@@ -95,11 +95,14 @@ jobs:
           # Fetch the specific upstream release tag cleanly without clobbering other tags
           git fetch upstream tag "$UPSTREAM_TAG" --no-tags
 
-          # Attempt merge of the official release tag
-          if ! git merge "$UPSTREAM_TAG" --no-ff -m "Merge official upstream release $UPSTREAM_TAG into fork"; then
-            echo "::error::Merge conflict encountered when merging official upstream release $UPSTREAM_TAG! Aborting merge to prevent publishing broken build."
-            git merge --abort
-            exit 1
+          # Attempt merge of the official release tag with whitespace tolerance
+          if ! git merge -Xignore-space-change "$UPSTREAM_TAG" --no-ff -m "Merge official upstream release $UPSTREAM_TAG into fork"; then
+            echo "Merge conflicts detected. Invoking automated conflict resolver..."
+            if ! python3 .github/scripts/resolve_upstream_merge.py; then
+              echo "::error::Unable to automatically resolve merge conflicts for $UPSTREAM_TAG! Aborting merge to prevent publishing broken build."
+              git merge --abort
+              exit 1
+            fi
           fi
 
           # Retain fork workflow files to prevent GitHub Actions permission rejection
