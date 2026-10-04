@@ -24,6 +24,32 @@ def get_conflicted_files():
         return []
     return [line.strip() for line in output.splitlines() if line.strip()]
 
+def resolve_gradle_properties(filepath):
+    """
+    Harmonizes gradle.properties:
+    Always preserves fork JVM args (-Xmx6g, -Xmx8g) which are required for large builds.
+    """
+    with open(filepath, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    if "<<<<<<<" not in content:
+        return False
+
+    pattern = re.compile(r'<<<<<<<[^\n]*\n(.*?)=======\s*(?:org\.gradle\.jvmargs|kotlin\.daemon\.jvmargs)[^\n]*\n.*?>======[^\n]*\n?', re.DOTALL)
+    # Match any conflict block in gradle.properties and keep HEAD
+    simple_pattern = re.compile(r'<<<<<<<[^\n]*\n(.*?)=======\s*.*?>======[^\n]*', re.DOTALL)
+    
+    # Generic replacement: keep HEAD lines for gradle.properties
+    def keep_head(m):
+        return m.group(1).rstrip()
+
+    new_content = re.sub(r'<<<<<<<[^\n]*\n(.*?)=======\s*.*?>>>>>>>[^\n]*', keep_head, content, flags=re.DOTALL)
+    if new_content != content:
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(new_content)
+        return True
+    return False
+
 def resolve_build_gradle_kts(filepath):
     """
     Harmonizes app/build.gradle.kts version block:
@@ -70,103 +96,59 @@ def resolve_build_gradle_kts(filepath):
 
     return False
 
-def resolve_music_service_kt(filepath):
+def resolve_universal_imports(content):
     """
-    Harmonizes MusicService.kt:
-    - Retains dataStore-backed Cronet toggle (with fallback to Chunked/OkHttp).
-    - Retains 8-second grace delay in preloadJob.
+    Universal resolver for conflict blocks that consist entirely of import statements.
+    Takes union of imports from HEAD and UPSTREAM, deduplicates, and sorts them.
     """
-    with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
+    conflict_pattern = re.compile(r'<<<<<<<[^\n]*\n(.*?)=======\s*(.*?)>>>>>>>[^\n]*', re.DOTALL)
 
-    if "<<<<<<<" not in content:
-        return False
+    def import_replacer(match):
+        head_part = match.group(1).strip()
+        upstream_part = match.group(2).strip()
 
-    changed = False
+        head_lines = [l.strip() for l in head_part.splitlines() if l.strip()]
+        upstream_lines = [l.strip() for l in upstream_part.splitlines() if l.strip()]
 
-    # Conflict 1: useCronet
-    cronet_pattern = re.compile(
-        r'<<<<<<<[^\n]*\n\s*val useCronet = runBlocking \{ dataStore\.get\(echo\.music\.iad1tya\.constants\.EnableCronetKey, true\) \}\s*=======\s*val useCronet = [^\n]+\s*>>>>>>>[^\n]*',
-        re.DOTALL
-    )
-    if cronet_pattern.search(content):
-        content = cronet_pattern.sub(
-            '        val useCronet = runBlocking { dataStore.get(echo.music.iad1tya.constants.EnableCronetKey, true) }',
-            content
-        )
-        changed = True
+        # Check if both sides only contain import statements
+        all_lines = head_lines + upstream_lines
+        if all(l.startswith("import ") for l in all_lines):
+            combined = sorted(list(set(all_lines)))
+            return "\n".join(combined)
 
-    # Conflict 2: preloadJob launch / delay
-    preload_pattern = re.compile(
-        r'<<<<<<<[^\n]*\n\s*preloadJob = scope\.launch\(kotlinx\.coroutines\.Dispatchers\.IO\) \{\s*=======\s*preloadJob =\s*scope\.launch\(kotlinx\.coroutines\.Dispatchers\.IO\) \{\s*kotlinx\.coroutines\.delay\((\d+L)\)[^\n]*\s*>>>>>>>[^\n]*',
-        re.DOTALL
-    )
-    m = preload_pattern.search(content)
-    if m:
-        delay_val = m.group(1)
-        content = preload_pattern.sub(
-            f'        preloadJob = scope.launch(kotlinx.coroutines.Dispatchers.IO) {{\n            kotlinx.coroutines.delay({delay_val}) // grace period before prefetching',
-            content
-        )
-        changed = True
+        # Return original if not purely imports
+        return match.group(0)
 
-    if changed:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-        return True
-    return False
+    new_content = conflict_pattern.sub(import_replacer, content)
+    return new_content
 
-def resolve_lyrics_kt(filepath):
+def resolve_whitespace_only_conflicts(content):
     """
-    Harmonizes Lyrics.kt:
-    - Retains showRomanizedLyrics preference check over upstream's hardcoded 'true' or 'false'.
-    - Cleans up formatting/whitespace conflict markers.
+    Universal resolver for conflict blocks where both sides are identical ignoring whitespace.
+    Picks upstream's formatting convention.
     """
-    with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
+    conflict_pattern = re.compile(r'<<<<<<<[^\n]*\n(.*?)=======\s*(.*?)>>>>>>>[^\n]*', re.DOTALL)
 
-    if "<<<<<<<" not in content:
-        return False
+    def ws_replacer(match):
+        head_part = match.group(1)
+        upstream_part = match.group(2)
 
-    changed = False
+        # Remove all whitespace and compare
+        norm_head = re.sub(r'\s+', '', head_part)
+        norm_upstream = re.sub(r'\s+', '', upstream_part)
 
-    # Romanized lyrics check
-    romanized_pattern = re.compile(
-        r'<<<<<<<[^\n]*\n\s*if \(showRomanizedLyrics\) \{\s*=======\s*if \((?:true|false)\) \{\s*>>>>>>>[^\n]*',
-        re.DOTALL
-    )
-    if romanized_pattern.search(content):
-        content = romanized_pattern.sub('                        if (showRomanizedLyrics) {', content)
-        changed = True
+        if norm_head == norm_upstream:
+            return upstream_part.strip('\n')
 
-    # Active translations block
-    translations_pattern = re.compile(
-        r'<<<<<<<[^\n]*\n\s*if \(hasActiveTranslations &&\s*=======\s*if \(\s*hasActiveTranslations &&\s*>>>>>>>[^\n]*',
-        re.DOTALL
-    )
-    if translations_pattern.search(content):
-        content = translations_pattern.sub('                        if (hasActiveTranslations &&', content)
-        changed = True
+        return match.group(0)
 
-    # Standalone empty line conflicts
-    empty_conflict = re.compile(
-        r'<<<<<<<[^\n]*\n\s*=======\s*>>>>>>>[^\n]*',
-        re.DOTALL
-    )
-    if empty_conflict.search(content):
-        content = empty_conflict.sub('', content)
-        changed = True
+    new_content = conflict_pattern.sub(ws_replacer, content)
+    return new_content
 
-    if changed:
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
-        return True
-    return False
-
-def resolve_listen_together_screen_kt(filepath):
+def resolve_kotlin_file(filepath):
     """
-    Harmonizes ListenTogetherScreen.kt:
-    Adopts upstream's updated invite link domain if conflicted.
+    Applies universal semantic resolvers (imports union, whitespace normalization,
+    and common additive patterns) to any Kotlin file.
     """
     with open(filepath, "r", encoding="utf-8") as f:
         content = f.read()
@@ -174,20 +156,20 @@ def resolve_listen_together_screen_kt(filepath):
     if "<<<<<<<" not in content:
         return False
 
-    link_pattern = re.compile(
-        r'<<<<<<<[^\n]*\n\s*val inviteLink = remember\(roomCode\) \{\s*"[^"]+"\s*=======\s*val inviteLink =\s*remember\(roomCode\) \{\s*"([^"]+)"\s*>>>>>>>[^\n]*\s*\}',
-        re.DOTALL
-    )
-    m = link_pattern.search(content)
-    if m:
-        new_link = m.group(1)
-        replacement = f'''                val inviteLink = remember(roomCode) {{
-                    "{new_link}"
-                }}'''
-        content = link_pattern.sub(replacement, content)
+    orig = content
+    content = resolve_universal_imports(content)
+    content = resolve_whitespace_only_conflicts(content)
+
+    # Clean empty-line conflict leftovers
+    empty_conflict = re.compile(r'<<<<<<<[^\n]*\n\s*=======\s*>>>>>>>[^\n]*', re.DOTALL)
+    content = empty_conflict.sub('', content)
+
+    if content != orig:
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(content)
-        return True
+        # Check if all conflicts in this file were resolved
+        return "<<<<<<<" not in content
+
     return False
 
 def main():
@@ -209,29 +191,27 @@ def main():
         resolved = False
         if rel_path.endswith("app/build.gradle.kts"):
             resolved = resolve_build_gradle_kts(abs_path)
-        elif rel_path.endswith("MusicService.kt"):
-            resolved = resolve_music_service_kt(abs_path)
-        elif rel_path.endswith("Lyrics.kt"):
-            resolved = resolve_lyrics_kt(abs_path)
-        elif rel_path.endswith("ListenTogetherScreen.kt"):
-            resolved = resolve_listen_together_screen_kt(abs_path)
+        elif rel_path.endswith("gradle.properties"):
+            resolved = resolve_gradle_properties(abs_path)
         elif rel_path.startswith(".github/workflows/"):
             run_git(["checkout", "HEAD", "--", rel_path], check=False)
             resolved = True
+        elif rel_path.endswith(".kt"):
+            resolved = resolve_kotlin_file(abs_path)
 
-        if resolved:
+        if resolved or ("<<<<<<<" not in open(abs_path, "r", encoding="utf-8", errors="ignore").read()):
             run_git(["add", rel_path])
             print(f"  [OK] Successfully resolved {rel_path}")
 
     # Check remaining conflicts
     remaining = get_conflicted_files()
     if remaining:
-        print(f"\n::error::Unresolved merge conflicts remain in {len(remaining)} file(s):")
+        print(f"\n::warning::Manual resolution needed for {len(remaining)} file(s):")
         for r in remaining:
             print(f"  - {r}")
         return 1
 
-    print("\nAll known merge conflicts resolved successfully!")
+    print("\nAll merge conflicts resolved successfully!")
     return 0
 
 if __name__ == "__main__":

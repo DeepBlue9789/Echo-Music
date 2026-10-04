@@ -99,8 +99,21 @@ jobs:
           if ! git merge -Xignore-space-change "$UPSTREAM_TAG" --no-ff -m "Merge official upstream release $UPSTREAM_TAG into fork"; then
             echo "Merge conflicts detected. Invoking automated conflict resolver..."
             if ! python3 .github/scripts/resolve_upstream_merge.py; then
-              echo "::error::Unable to automatically resolve merge conflicts for $UPSTREAM_TAG! Aborting merge to prevent publishing broken build."
-              git merge --abort
+              echo "::warning::Automated conflict resolution could not resolve all files. Opening a Sync Pull Request..."
+              SYNC_BRANCH="sync/upstream-${UPSTREAM_TAG}"
+              git checkout -b "$SYNC_BRANCH" || git checkout "$SYNC_BRANCH"
+              git rm -rf --cached .github/workflows/ 2>/dev/null || true
+              git checkout HEAD -- .github/workflows/ 2>/dev/null || true
+              git clean -fd .github/workflows/ 2>/dev/null || true
+              git add -A
+              git commit -m "WIP: Merge upstream release $UPSTREAM_TAG with unresolved conflicts" || true
+              git push origin "$SYNC_BRANCH" --force
+              gh pr create --repo DeepBlue9789/Echo-Music --title "Sync upstream release $UPSTREAM_TAG" \
+                --body "Official release $UPSTREAM_TAG contains new upstream changes that conflict with fork modifications. Please resolve and merge." \
+                --base main --head "$SYNC_BRANCH" || true
+              echo "::error::Opened PR for manual review of $UPSTREAM_TAG. Aborting main sync."
+              git checkout main
+              git merge --abort 2>/dev/null || true
               exit 1
             fi
           fi

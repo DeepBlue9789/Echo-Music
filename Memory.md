@@ -549,3 +549,45 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 ### D. Compilation Verification
 - Ran `./gradlew compileUniversalGmsDebugKotlin` — passed cleanly across all 190 tasks with 0 errors (`BUILD SUCCESSFUL in 4m 13s`).
 
+---
+
+## 18. Upstream Release v1.4.1 Synchronization, AutoEq Integration & Universal Conflict Engine
+
+### A. Deep Diagnosis: Why Merge Conflicts Recur on Every Upstream Release
+1. **The Shared Monolith Problem**:
+   - Upstream Echo Music (`EchoMusicApp/Echo-Music`) is actively developed with rapid, weekly feature releases.
+   - The core fork enhancements (Listen Together P2P sync, JioSaavn 320k stream resolution, dynamic `-d<N>` sub-versioning, and romanization) are implemented directly inside upstream's most volatile monolith files:
+     - `MusicService.kt` (6,000+ lines: audio focus, streaming, playback queue, JioSaavn resolver)
+     - `PlayerSettings.kt` (1,400+ lines: preferences, download options, UI switches)
+     - `Queue.kt` (1,600+ lines: now playing, drag-and-drop, selection)
+     - `PlayerConnection.kt` (service bindings, media state)
+     - `app/build.gradle.kts` & `gradle.properties` (build dependencies, JVM memory, version codes)
+   - Git 3-way merge matches lines textually. When upstream developers refactor `MusicService.kt` or add settings to `PlayerSettings.kt`, those changes inevitably collide with our modifications on adjacent lines.
+2. **Whitespace Drift (2-space vs. 4-space indentation)**:
+   - Upstream enforces ktlint 2-space indentation. Certain fork files were accidentally reformatted with 4-space indentation, making identical code blocks appear completely rewritten to Git.
+3. **Limitation of Fixed-Regex Resolvers**:
+   - The initial `resolve_upstream_merge.py` had hardcoded regexes targeting specific lines from `v1.4`. When `v1.4.1` arrived with new refactorings in `Queue.kt` and `PlayerSettings.kt`, the regexes failed to match and the workflow aborted.
+
+### B. Universal Conflict Resolution Engine (`resolve_upstream_merge.py` & `sync-upstream.yml`)
+1. **Universal Imports Deduplication & Union**:
+   - Detects conflicts where both sides are Kotlin `import` declarations. Automatically extracts all imports from both HEAD and UPSTREAM, deduplicates, and sorts them alphabetically.
+2. **Whitespace-Normalized Conflict Eliminator**:
+   - Compares conflict blocks ignoring all whitespace (`re.sub(r'\s+', '', head) == re.sub(r'\s+', '', upstream)`). If semantically identical, automatically adopts upstream's 2-space formatting.
+3. **Dynamic Versioning & Property Preservation**:
+   - `build.gradle.kts`: Dynamically extracts upstream's new `versionCode` (e.g. `162`) and `versionName` (`1.4.1`) and injects them into the fork's sub-versioning parser.
+   - `gradle.properties`: Always preserves fork JVM memory settings (`-Xmx6g`, `-Xmx8g`).
+4. **Automated Fallback Pull Request Workflow**:
+   - If upstream introduces an unresolvable structural change (e.g. method signature rewrite), `sync-upstream.yml` no longer silently fails.
+   - It pushes the merge state to branch `sync/upstream-${TAG}` and automatically creates a GitHub Pull Request with conflict markers preserved for easy review.
+
+### C. Major Features Synced from Upstream v1.4.1
+- **AutoEq Integration (8850+ Profiles)**: Built-in parametric equalizer with 8,850+ headphone and IEM compensation curves (`autoeq_index.json`).
+- **Smooth Carousel Auto-Scroll & Wavy Play/Pause**: Animated wavy play/pause button with toggle in player settings.
+- **Download with Metadata & MP3 Export**: Downloading synchronized lyrics and ID3 metadata with songs and exporting local files.
+- **Refactored Queue Persistence**: Atomic disk queue restoration avoiding coroutine race conditions.
+- **Blocked Artists Screen**: Dedicated UI for managing blacklisted musicians.
+
+### D. Compilation Verification
+- Ran `./gradlew compileUniversalGmsDebugKotlin` — passed cleanly across all 190 tasks with 0 errors (`BUILD SUCCESSFUL in 1m 54s`).
+
+
