@@ -49,11 +49,8 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
 import androidx.media3.datasource.cache.SimpleCache
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.datasource.cronet.CronetDataSource
-import org.chromium.net.CronetEngine
-import echo.music.iad1tya.constants.EnableCronetKey
-import echo.music.iad1tya.constants.ForceOpusKey
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
@@ -99,6 +96,7 @@ import echo.music.iad1tya.constants.DiscordActivityTypeKey
 import echo.music.iad1tya.constants.DiscordTokenKey
 import echo.music.iad1tya.constants.EnableDiscordRPCKey
 import echo.music.iad1tya.constants.EnableLastFMScrobblingKey
+import echo.music.iad1tya.constants.ForceOpusKey
 import echo.music.iad1tya.constants.HideExplicitKey
 import echo.music.iad1tya.constants.HideVideoSongsKey
 import echo.music.iad1tya.constants.HistoryDuration
@@ -194,6 +192,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -214,6 +214,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import org.chromium.net.CronetEngine
 import timber.log.Timber
 import java.io.ObjectInputStream
 import java.io.ObjectOutputStream
@@ -356,7 +357,7 @@ class MusicService :
         }
     }
 
-    private var scope = CoroutineScope(Dispatchers.Main) + Job()
+  private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private val binder = MusicBinder()
 
@@ -440,6 +441,7 @@ class MusicService :
     
     private val playerInitialized = MutableStateFlow(false)
     val isPlayerReady: kotlinx.coroutines.flow.StateFlow<Boolean> = playerInitialized.asStateFlow()
+  private var queueRestored = false
 
     
     private val _playerFlow = MutableStateFlow<ExoPlayer?>(null)
@@ -481,6 +483,8 @@ class MusicService :
 
     
     private var originalQueueSize: Int = 0
+  private var queueGeneration = 0L
+  private var loadMoreJob: Job? = null
 
     private var consecutivePlaybackErr = 0
     private var retryJob: Job? = null
@@ -1013,88 +1017,102 @@ class MusicService :
 
 
         if (dataStore.get(PersistentQueueKey, true)) {
+      scope.launch(Dispatchers.IO) {
+        playerInitialized.first { it }
+        if (!isActive) return@launch
+
             val queueFile = filesDir.resolve(PERSISTENT_QUEUE_FILE)
-            if (queueFile.exists()) {
-                runCatching {
-                    queueFile.inputStream().use { fis ->
-                        ObjectInputStream(fis).use { oos ->
-                            oos.readObject() as PersistQueue
-                        }
-                    }
-                }.onSuccess { queue ->
-                    runCatching {
-                        
-                        val restoredQueue = queue.toQueue()
-                        
-                        scope.launch {
-                            playerInitialized.first { it }
-                            if (isActive) {
-                                playQueue(
-                                    queue = restoredQueue,
-                                    playWhenReady = false,
-                                    restoredShuffledIndices = queue.shuffledIndices,
-                                )
-                            }
-                        }
-                    }.onFailure { error ->
-                        Timber.tag(TAG).w(error, "Failed to restore persisted queue, clearing data")
-                        clearPersistedQueueFiles()
-                    }
-                }.onFailure { error ->
-                    Timber.tag(TAG).w(error, "Failed to read persisted queue, clearing data")
-                    clearPersistedQueueFiles()
+        val automixFile = filesDir.resolve(PERSISTENT_AUTOMIX_FILE)
+        val playerStateFile = filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE)
+
+        val persistQueue =
+          if (queueFile.exists()) {
+            runCatching {
+              queueFile.inputStream().use { fis ->
+                ObjectInputStream(fis).use { oos -> oos.readObject() as PersistQueue }
+              }
+            }
+              .onFailure { error ->
+                Timber.tag(TAG).w(error, "Failed to read persisted queue, deleting corrupted file")
+                runCatching { queueFile.delete() }
+              }
+              .getOrNull()
+          } else null
+
+        val persistAutomix =
+          if (automixFile.exists()) {
+            runCatching {
+              automixFile.inputStream().use { fis ->
+                ObjectInputStream(fis).use { oos -> oos.readObject() as PersistQueue }
+              }
+            }
+              .onFailure { error ->
+                Timber.tag(TAG).w(error, "Failed to read automix queue, deleting corrupted file")
+                runCatching { automixFile.delete() }
+              }
+              .getOrNull()
+          } else null
+
+        val persistPlayerState =
+          if (playerStateFile.exists()) {
+            runCatching {
+              playerStateFile.inputStream().use { fis ->
+                ObjectInputStream(fis).use { oos -> oos.readObject() as PersistPlayerState }
+              }
+            }
+              .onFailure { error ->
+                Timber.tag(TAG).w(error, "Failed to read player state, deleting corrupted file")
+                runCatching { playerStateFile.delete() }
+              }
+              .getOrNull()
+          } else null
+
+        withContext(Dispatchers.Main) {
+          if (!isActive) return@withContext
+
+          if (persistAutomix != null) {
+            runCatching { automixItems.value = persistAutomix.items.map { it.toMediaItem() } }
+          }
+
+          if (persistPlayerState != null) {
+            playerVolume.value = restorePlayerVolume(persistPlayerState.volume)
+          }
+
+          if (persistQueue != null) {
+            runCatching {
+              val restoredQueue = persistQueue.toQueue()
+              val playJob =
+                playQueue(
+                  queue = restoredQueue,
+                  playWhenReady = false,
+                  restoredShuffledIndices = persistQueue.shuffledIndices,
+                )
+              playJob.join()
+
+              if (
+                persistPlayerState != null &&
+                  persistPlayerState.currentMediaItemIndex < player.mediaItemCount
+              ) {
+                player.seekTo(
+                  persistPlayerState.currentMediaItemIndex,
+                  persistPlayerState.currentPosition
+                )
+              }
+              currentMediaMetadata.value = player.currentMetadata
+            }
+              .onFailure { error ->
+                Timber.tag(TAG).w(error, "Failed to restore persisted queue into player")
+              }
+          }
+
                 }
             }
 
-            val automixFile = filesDir.resolve(PERSISTENT_AUTOMIX_FILE)
-            if (automixFile.exists()) {
-                runCatching {
-                    automixFile.inputStream().use { fis ->
-                        ObjectInputStream(fis).use { oos ->
-                            oos.readObject() as PersistQueue
-                        }
-                    }
-                }.onSuccess { queue ->
-                    runCatching {
-                        automixItems.value = queue.items.map { it.toMediaItem() }
-                    }.onFailure { error ->
-                        Timber.tag(TAG).w(error, "Failed to restore automix queue, clearing data")
-                        clearPersistedQueueFiles()
-                    }
-                }.onFailure { error ->
-                    Timber.tag(TAG).w(error, "Failed to read automix queue, clearing data")
-                    clearPersistedQueueFiles()
-                }
-            }
-
-            
-            val playerStateFile = filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE)
-            if (playerStateFile.exists()) {
-                runCatching {
-                    playerStateFile.inputStream().use { fis ->
-                        ObjectInputStream(fis).use { oos ->
-                            oos.readObject() as PersistPlayerState
-                        }
-                    }
-                }.onSuccess { playerState ->
-                    
-                    scope.launch {
-                        delay(1000) 
-                        
-                        
-                        
-                        playerVolume.value = restorePlayerVolume(playerState.volume)
-
-                        
-                        if (playerState.currentMediaItemIndex < player.mediaItemCount) {
-                            player.seekTo(playerState.currentMediaItemIndex, playerState.currentPosition)
-                        }
-                    }
-                }.onFailure { error ->
-                    Timber.tag(TAG).w(error, "Failed to read player state, clearing data")
-                    clearPersistedQueueFiles()
-                }
-            }
+          queueRestored = true
+        }
+      }
+    } else {
+      queueRestored = true
         }
 
         
@@ -1521,19 +1539,21 @@ class MusicService :
         queue: Queue,
         playWhenReady: Boolean = true,
         restoredShuffledIndices: List<Int>? = null,
-    ) {
-        if (!scope.isActive) scope = CoroutineScope(Dispatchers.Main) + Job()
+  ): Job {
+    if (!scope.isActive) scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
         
         if (!playerInitialized.value) {
             Timber.tag(TAG).w("playQueue called before player initialization, queuing request")
-            scope.launch {
+      return scope.launch {
                 playerInitialized.first { it }
-                playQueue(queue, playWhenReady, restoredShuffledIndices)
+        playQueue(queue, playWhenReady, restoredShuffledIndices).join()
             }
-            return
         }
 
+    queueGeneration++
+    loadMoreJob?.cancel()
+    loadMoreJob = null
         currentQueue = queue
         queueTitle = null
         val persistShuffleAcrossQueues = dataStore.get(PersistentShuffleAcrossQueuesKey, false)
@@ -1548,7 +1568,7 @@ class MusicService :
             player.prepare()
             player.playWhenReady = playWhenReady
         }
-        scope.launch(SilentHandler) {
+    return scope.launch(SilentHandler) {
             val initialStatus =
                 withContext(Dispatchers.IO) {
                     queue.getInitialStatus()
@@ -1658,6 +1678,9 @@ class MusicService :
                     }
                 }
 
+        queueGeneration++
+        loadMoreJob?.cancel()
+        loadMoreJob = null
                 currentQueue = radioQueue
             } catch (e: Exception) {
                 
@@ -1791,6 +1814,140 @@ class MusicService :
     fun clearAutomix() {
         automixItems.value = emptyList()
     }
+
+  data class ClearedQueueState(
+    val removedItems: List<MediaItem>,
+    val startIndex: Int,
+    val previousQueue: Queue,
+    val previousQueueTitle: String?,
+    val originalQueueSize: Int,
+    val currentMediaId: String?,
+    val queueGeneration: Long,
+    val wasShuffled: Boolean,
+    val preservedPlaybackOrder: List<Int>?,
+  )
+
+  fun clearQueue(): ClearedQueueState? {
+    if (!playerInitialized.value) return null
+    val timeline = player.currentTimeline
+    if (timeline.isEmpty) return null
+    val currentIndex = player.currentMediaItemIndex
+    if (currentIndex == C.INDEX_UNSET) return null
+
+    val isShuffled = player.shuffleModeEnabled
+
+    val upcomingIndices = mutableListOf<Int>()
+    var nextIdx = timeline.getNextWindowIndex(currentIndex, Player.REPEAT_MODE_OFF, isShuffled)
+    while (nextIdx != C.INDEX_UNSET) {
+      upcomingIndices.add(nextIdx)
+      nextIdx = timeline.getNextWindowIndex(nextIdx, Player.REPEAT_MODE_OFF, isShuffled)
+    }
+
+    if (upcomingIndices.isEmpty()) return null
+
+    val removedItems = upcomingIndices.map { player.getMediaItemAt(it) }
+
+    loadMoreJob?.cancel()
+    loadMoreJob = null
+
+    val prevQueue = currentQueue
+    val prevQueueTitle = queueTitle
+    val currentMediaId = player.currentMediaItem?.mediaId
+    val currentGen = queueGeneration
+    val savedOriginalQueueSize = originalQueueSize
+
+    val preservedOrder: List<Int>? =
+      if (isShuffled) {
+        val prevIndices = mutableListOf<Int>()
+        var pIdx = currentIndex
+        while (true) {
+          pIdx = timeline.getPreviousWindowIndex(pIdx, Player.REPEAT_MODE_OFF, true)
+          if (pIdx == C.INDEX_UNSET) break
+          prevIndices.add(pIdx)
+        }
+        prevIndices.reverse()
+        val originalPlaybackOrder = prevIndices + listOf(currentIndex)
+
+        val toRemove = upcomingIndices.toSet()
+        for (idx in toRemove.sortedDescending()) {
+          player.removeMediaItem(idx)
+        }
+
+        val newOrder =
+          originalPlaybackOrder.map { oldIdx -> oldIdx - toRemove.count { it < oldIdx } }
+        player.setShuffleOrder(
+          DefaultShuffleOrder(newOrder.toIntArray(), System.currentTimeMillis())
+        )
+        newOrder
+      } else {
+        player.removeMediaItems(currentIndex + 1, player.mediaItemCount)
+        null
+      }
+
+    currentQueue = EmptyQueue
+    originalQueueSize = originalQueueSize.coerceAtMost(player.mediaItemCount)
+
+    resyncCastQueueIfCasting()
+
+    if (dataStore.get(PersistentQueueKey, true)) {
+      saveQueueToDisk()
+    }
+
+    return ClearedQueueState(
+      removedItems = removedItems,
+      startIndex = currentIndex + 1,
+      previousQueue = prevQueue,
+      previousQueueTitle = prevQueueTitle,
+      originalQueueSize = savedOriginalQueueSize,
+      currentMediaId = currentMediaId,
+      queueGeneration = currentGen,
+      wasShuffled = isShuffled,
+      preservedPlaybackOrder = preservedOrder,
+    )
+  }
+
+  fun restoreQueue(state: ClearedQueueState) {
+    if (!playerInitialized.value || state.removedItems.isEmpty()) return
+
+    if (
+      queueGeneration != state.queueGeneration ||
+        currentQueue != EmptyQueue ||
+        player.currentMediaItem?.mediaId != state.currentMediaId
+    ) {
+      Timber.tag(TAG).d("restoreQueue declined: queue has changed or was replaced")
+      return
+    }
+
+    if (state.wasShuffled && state.preservedPlaybackOrder != null) {
+      val currentCount = player.mediaItemCount
+      player.addMediaItems(currentCount, state.removedItems)
+
+      val restoredOrder = IntArray(currentCount + state.removedItems.size)
+      var pos = 0
+      state.preservedPlaybackOrder.forEach { restoredOrder[pos++] = it }
+      for (i in currentCount until (currentCount + state.removedItems.size)) {
+        restoredOrder[pos++] = i
+      }
+      player.setShuffleOrder(DefaultShuffleOrder(restoredOrder, System.currentTimeMillis()))
+    } else {
+      val insertIndex = state.startIndex.coerceAtMost(player.mediaItemCount)
+      player.addMediaItems(insertIndex, state.removedItems)
+      if (player.shuffleModeEnabled) {
+        val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
+        applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
+      }
+    }
+
+    currentQueue = state.previousQueue
+    queueTitle = state.previousQueueTitle
+    originalQueueSize = state.originalQueueSize
+
+    resyncCastQueueIfCasting()
+
+    if (dataStore.get(PersistentQueueKey, true)) {
+      saveQueueToDisk()
+    }
+  }
 
     fun playNext(items: List<MediaItem>) {
         val isCasting = castConnectionHandler?.isCasting?.value == true
@@ -2166,13 +2323,26 @@ class MusicService :
             currentQueue.hasNextPage() &&
             !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) && player.repeatMode == REPEAT_MODE_ALL)
         ) {
+      loadMoreJob?.cancel()
+      val queueAtStart = currentQueue
+      val startGeneration = queueGeneration
+      loadMoreJob =
             scope.launch(SilentHandler) {
-                val mediaItems = withContext(Dispatchers.IO) {
-                    currentQueue.nextPage()
+          val mediaItems =
+            withContext(Dispatchers.IO) {
+              queueAtStart
+                .nextPage()
                         .filterExplicit(dataStore.get(HideExplicitKey, false))
                         .filterVideoSongs(dataStore.get(HideVideoSongsKey, false) || dataStore.get(echo.music.iad1tya.constants.DataSaverEnabledKey, false))
                 }
-                if (player.playbackState != STATE_IDLE && mediaItems.isNotEmpty()) {
+          if (
+            isActive &&
+              player.playbackState != STATE_IDLE &&
+              mediaItems.isNotEmpty() &&
+              queueGeneration == startGeneration &&
+              currentQueue === queueAtStart &&
+              currentQueue != EmptyQueue
+          ) {
                     player.addMediaItems(mediaItems)
                     if (player.shuffleModeEnabled) {
                         val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
@@ -2853,15 +3023,16 @@ class MusicService :
     private fun createCacheDataSource(): CacheDataSource.Factory {
         val useCronet = runBlocking { dataStore.get(echo.music.iad1tya.constants.EnableCronetKey, true) }
 
-        val upstreamFactory = if (useCronet) {
+    val upstreamFactory =
+      if (useCronet) {
             try {
                 Timber.tag(TAG).d("Initializing CronetEngine for HTTP/3 QUIC streaming")
-                val cronetEngine = org.chromium.net.CronetEngine.Builder(this)
-                    .enableQuic(true)
-                    .enableHttp2(true)
-                    .enableBrotli(true)
-                    .build()
-                androidx.media3.datasource.cronet.CronetDataSource.Factory(cronetEngine, java.util.concurrent.Executors.newSingleThreadExecutor())
+          val cronetEngine =
+            CronetEngine.Builder(this).enableQuic(true).enableHttp2(true).enableBrotli(true).build()
+          CronetDataSource.Factory(
+            cronetEngine,
+            java.util.concurrent.Executors.newSingleThreadExecutor()
+          )
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "Failed to initialize Cronet, falling back to OkHttp")
         com.music.echo.playback.ChunkedDataSource.Factory(createOkHttpFactory(), 1024 * 1024L)
@@ -3297,8 +3468,14 @@ class MusicService :
                     streamUrl to System.currentTimeMillis() + (nonNullPlayback.streamExpiresInSeconds * 1000L)
                 
         var builder = dataSpec.buildUpon().setKey(targetCacheKey).setUri(streamUrl.toUri())
-        val finalHeaders = nonNullPlayback.headers ?: echo.music.iad1tya.utils.InnerTubeXResolver.headersFor(streamUrl) ?: echo.music.iad1tya.utils.PlayerClient.forStreamUrl(streamUrl).mediaHeaders()
-        android.util.Log.d("MusicService", "EXOPLAYER REQUEST: url=$streamUrl headers=$finalHeaders")
+        val finalHeaders =
+          nonNullPlayback.headers
+            ?: echo.music.iad1tya.utils.InnerTubeXResolver.headersFor(streamUrl)
+            ?: echo.music.iad1tya.utils.PlayerClient.forStreamUrl(streamUrl).mediaHeaders()
+        android.util.Log.d(
+          "MusicService",
+          "EXOPLAYER REQUEST: url=$streamUrl headers=$finalHeaders"
+        )
         builder = builder.setHttpRequestHeaders(finalHeaders)
         return@Factory builder.build()
             }
@@ -3367,8 +3544,9 @@ class MusicService :
         }
 
         if (playbackStats.totalPlayTimeMs >= historyDurationMs) {
-            CoroutineScope(Dispatchers.IO).launch {
-                val playbackUrl = database.format(mediaItem.mediaId).first()?.playbackUrl
+      scope.launch(Dispatchers.IO) {
+        val playbackUrl =
+          database.format(mediaItem.mediaId).first()?.playbackUrl
                     ?: YTPlayerUtils.playerResponseForMetadata(mediaItem.mediaId, null)
                         .getOrNull()?.playbackTracking?.videostatsPlaybackUrl?.baseUrl
                 playbackUrl?.let {
@@ -3382,9 +3560,13 @@ class MusicService :
     }
 
     private fun saveQueueToDisk() {
+    if (!queueRestored) {
+      Timber.tag(TAG).d("Skipping saveQueueToDisk - queue has not been restored yet")
+      return
+    }
+
         if (player.mediaItemCount == 0) {
-            Timber.tag(TAG).d("Clearing persisted queue - no media items")
-            clearPersistedQueueFiles()
+      Timber.tag(TAG).d("Skipping saveQueueToDisk - no media items in player")
             return
         }
 
@@ -3504,6 +3686,7 @@ class MusicService :
         
         player.release()
         discordUpdateJob?.cancel()
+    scope.cancel()
         super.onDestroy()
     }
 
@@ -3511,6 +3694,10 @@ class MusicService :
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
+
+    if (::player.isInitialized && dataStore.get(PersistentQueueKey, true)) {
+      saveQueueToDisk()
+    }
 
         // Keep background playback alive when the user dismisses the UI while a song is
         // actually playing. If playback is paused/stopped, however, there is no reason to
@@ -4468,14 +4655,17 @@ class MusicService :
                             songUrlCache["${mediaId}_${audioQuality.name}"] = Pair(streamUrl, System.currentTimeMillis() + 1000 * 60 * 60)
                             Timber.tag(TAG).d("Preloaded stream for $mediaId")
 
-                            kotlin.runCatching {
+                kotlin
+                  .runCatching {
                                 Timber.tag(TAG).d("AOT Preloading bytes for $mediaId")
-                                val dataSpec = androidx.media3.datasource.DataSpec.Builder()
+                    val dataSpec =
+                      androidx.media3.datasource.DataSpec.Builder()
                                     .setUri(android.net.Uri.parse(streamUrl))
                                     .setKey("${mediaId}_${audioQuality.name}")
                                     .build()
                                 val cacheDataSource = createCacheDataSource().createDataSource()
-                                val cacheWriter = androidx.media3.datasource.cache.CacheWriter(
+                    val cacheWriter =
+                      androidx.media3.datasource.cache.CacheWriter(
                                     cacheDataSource,
                                     dataSpec,
                                     null,
@@ -4483,7 +4673,8 @@ class MusicService :
                                 )
                                 cacheWriter.cache()
                                 Timber.tag(TAG).d("AOT Preloading bytes for $mediaId completed")
-                            }.onFailure { e ->
+                  }
+                  .onFailure { e ->
                                 if (e !is kotlinx.coroutines.CancellationException) {
                                     Timber.tag(TAG).e(e, "AOT Preloading bytes failed for $mediaId")
                                 }

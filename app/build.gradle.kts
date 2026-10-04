@@ -33,7 +33,7 @@ android {
         applicationId = "echo.music.iad1tya"
         minSdk = 26
         targetSdk = 36
-        val envVersionName = System.getenv("APP_VERSION_NAME") ?: project.findProperty("versionName")?.toString() ?: "1.4"
+        val envVersionName = System.getenv("APP_VERSION_NAME") ?: project.findProperty("versionName")?.toString() ?: "1.4.1"
         val defaultOrParsedCode = run {
             val clean = envVersionName.removePrefix("v").trim()
             val base = clean.split("-").first()
@@ -42,7 +42,7 @@ android {
             if (parts.size >= 3 && d != null) {
                 parts[0] * 1000000 + parts[1] * 10000 + parts[2] * 100 + d
             } else null
-        } ?: 161
+        } ?: 162
         val envVersionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull()
             ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
             ?: defaultOrParsedCode
@@ -281,6 +281,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 dependencies {
+  implementation("nl.dionsegijn:konfetti-compose:2.0.4")
+
     implementation(project(":core"))
     implementation(project(":playback"))
 
@@ -357,9 +359,6 @@ dependencies {
     ksp(libs.hilt.compiler)
   ksp("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.20")
   annotationProcessor("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.20")
-
-
-
 
     implementation(project(":innertube"))
   implementation("com.github.MetrolistGroup.innertubex:innertubex-android:v0.7.0")

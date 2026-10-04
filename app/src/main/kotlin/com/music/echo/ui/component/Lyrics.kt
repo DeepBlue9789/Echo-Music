@@ -458,6 +458,7 @@ fun Lyrics(
     
     val translationStatus by LyricsTranslationHelper.status.collectAsState()
     val hasActiveTranslations by LyricsTranslationHelper.hasActiveTranslations.collectAsState()
+  var showTranslationBanner by remember { mutableStateOf(false) }
     
     
     DisposableEffect(Unit) {
@@ -465,6 +466,29 @@ fun Lyrics(
         onDispose {
             LyricsTranslationHelper.setCompositionActive(false)
             LyricsTranslationHelper.cancelTranslation()
+      LyricsTranslationHelper.resetStatus()
+    }
+  }
+
+  LaunchedEffect(mediaMetadata?.id) {
+    LyricsTranslationHelper.cancelTranslation()
+    LyricsTranslationHelper.resetStatus()
+    showTranslationBanner = false
+  }
+
+  LaunchedEffect(translationStatus) {
+    if (translationStatus !is LyricsTranslationHelper.TranslationStatus.Idle) {
+      showTranslationBanner = true
+      kotlinx.coroutines.delay(3000)
+      showTranslationBanner = false
+      if (
+        translationStatus is LyricsTranslationHelper.TranslationStatus.Error ||
+          translationStatus is LyricsTranslationHelper.TranslationStatus.Success
+      ) {
+        LyricsTranslationHelper.resetStatus()
+      }
+    } else {
+      showTranslationBanner = false
         }
     }
     
@@ -480,9 +504,14 @@ fun Lyrics(
             
             kotlinx.coroutines.delay(100)
             
-            if (autoTranslate && !LyricsTranslationHelper.hasTranslations(lyricsEntity) &&
+            val effectiveApiKey = if (aiProvider == "DeepL") deeplApiKey else openRouterApiKey
+            if (
+                autoTranslate &&
+                effectiveApiKey.isNotBlank() &&
+                !LyricsTranslationHelper.hasTranslations(lyricsEntity) &&
                 LyricsTranslationHelper.status.value !is LyricsTranslationHelper.TranslationStatus.Translating &&
-                !LyricsTranslationHelper.hasActiveTranslations.value) {
+                !LyricsTranslationHelper.hasActiveTranslations.value
+            ) {
                 LyricsTranslationHelper.triggerManualTranslation()
             }
         }
@@ -747,14 +776,13 @@ fun Lyrics(
             .fillMaxSize()
             .padding(bottom = 12.dp)
     ) {
-        
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .zIndex(1f)
-                .padding(top = 56.dp),
-            contentAlignment = Alignment.Center
+        androidx.compose.animation.AnimatedVisibility(
+            visible = showTranslationBanner && translationStatus !is LyricsTranslationHelper.TranslationStatus.Idle,
+            enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically { -it },
+            exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically { -it },
+            modifier = Modifier.fillMaxWidth().zIndex(1f).padding(top = 56.dp)
         ) {
+      Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             when (val status = translationStatus) {
                 is LyricsTranslationHelper.TranslationStatus.Translating -> {
                     Card(
@@ -841,6 +869,7 @@ fun Lyrics(
                 }
             }
         }
+    }
 
         if (lyrics == LYRICS_NOT_FOUND) {
             Box(

@@ -53,6 +53,7 @@ val SlimNavBarKey = booleanPreferencesKey("slimNavBar")
 val GridItemsSizeKey = stringPreferencesKey("gridItemSize")
 val SliderStyleKey = stringPreferencesKey("sliderStyle")
 val SquigglySliderKey = booleanPreferencesKey("squigglySlider")
+val WavyPlayPauseKey = booleanPreferencesKey("wavyPlayPause")
 val SwipeToSongKey = booleanPreferencesKey("SwipeToSong")
 val SwipeToRemoveSongKey = booleanPreferencesKey("SwipeToRemoveSong")
 val UseNewPlayerDesignKey= booleanPreferencesKey("useNewPlayerDesign")
@@ -121,6 +122,7 @@ enum class DownloadQuality {
 }
 
 val DownloadOnWifiOnlyKey = booleanPreferencesKey("downloadOnWifiOnly")
+val DownloadWithMetadataKey = booleanPreferencesKey("downloadWithMetadata")
 
 val AudioOffload = booleanPreferencesKey("enableOffload")
 
@@ -249,6 +251,8 @@ val MixSortDescendingKey = booleanPreferencesKey("albumSortDescending")
 
 val LocalSongsMinDurationSecondsKey = intPreferencesKey("local_songs_min_duration_seconds")
 val LocalSongsExcludedFoldersKey = stringSetPreferencesKey("local_songs_excluded_folders")
+val LocalSongsIncludedFoldersKey = stringSetPreferencesKey("local_songs_included_folders")
+val LocalSongsFolderFilterModeKey = stringPreferencesKey("local_songs_folder_filter_mode")
 val LocalStorageDirsKey = stringSetPreferencesKey("local_storage_dirs")
 val DiscordTokenKey = stringPreferencesKey("discord_token")
 val DiscordRefreshTokenKey = stringPreferencesKey("discord_refresh_token")
@@ -830,7 +834,6 @@ val PreloadNextSongEnabledKey = booleanPreferencesKey("preload_next_song_enabled
 val PreloadNextSongLimitKey = intPreferencesKey("preload_next_song_limit")
 val PreloadLyricsEnabledKey = booleanPreferencesKey("preload_lyrics_enabled")
 
-
 val LiquidGlassGlobalEnabledKey = booleanPreferencesKey("liquidGlassGlobalEnabled")
 val LiquidGlassTextColorKey = intPreferencesKey("liquidGlassTextColor")
 val LiquidGlassSurfaceTintColorKey = intPreferencesKey("liquidGlassSurfaceTintColor")
@@ -854,6 +857,11 @@ val AmbientArtScaleKey = floatPreferencesKey("ambient_art_scale")
 val AmbientShowTitleKey = booleanPreferencesKey("ambient_show_title")
 val AmbientShowArtistKey = booleanPreferencesKey("ambient_show_artist")
 val AmbientShowLyricsKey = booleanPreferencesKey("ambient_show_lyrics")
+val AmbientShowArtKey = booleanPreferencesKey("ambient_show_art")
+val AmbientFullScreenArtKey = booleanPreferencesKey("ambient_full_screen_art")
+
+
+val AmbientSpacingKey = floatPreferencesKey("ambient_spacing")
 
 
 enum class AppFont(val value: String) {
@@ -871,3 +879,5 @@ enum class AppFont(val value: String) {
 
 val SelectedFontKey = stringPreferencesKey("selected_app_font")
 val CustomFontPathKey = androidx.datastore.preferences.core.stringPreferencesKey("custom_font_path")
+val BlockedArtistsKey =
+  androidx.datastore.preferences.core.stringSetPreferencesKey("blockedArtists")

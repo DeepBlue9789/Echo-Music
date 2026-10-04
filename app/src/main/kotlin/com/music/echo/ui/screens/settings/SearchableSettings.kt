@@ -154,6 +154,12 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
       "settings/ai"
     ),
     SearchableSetting(
+      stringResource(R.string.ai_provider_requesty_help),
+      stringResource(R.string.ai_provider_requesty_help_desc),
+      "AI Lyrics Translation",
+      "settings/ai"
+    ),
+    SearchableSetting(
       stringResource(R.string.ai_provider_xai_help),
       stringResource(R.string.ai_provider_xai_help_desc),
       "AI Lyrics Translation",
@@ -1717,6 +1723,12 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
     SearchableSetting(
       stringResource(R.string.wavy),
       stringResource(R.string.wavy_desc),
+      "Appearance",
+      "settings/appearance"
+    ),
+    SearchableSetting(
+      stringResource(R.string.wavy_play_pause),
+      stringResource(R.string.wavy_play_pause_desc),
       "Appearance",
       "settings/appearance"
     ),

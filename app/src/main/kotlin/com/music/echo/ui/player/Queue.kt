@@ -47,6 +47,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -131,6 +132,7 @@ import echo.music.iad1tya.models.MediaMetadata
 import echo.music.iad1tya.ui.component.ActionPromptDialog
 import echo.music.iad1tya.ui.component.BottomSheet
 import echo.music.iad1tya.ui.component.BottomSheetState
+import echo.music.iad1tya.ui.component.DefaultDialog
 import echo.music.iad1tya.ui.component.LocalBottomSheetPageState
 import echo.music.iad1tya.ui.component.LocalMenuState
 import echo.music.iad1tya.ui.component.MediaMetadataListItem
@@ -296,6 +298,7 @@ fun Queue(
     var ltLastReadCount by rememberSaveable { mutableIntStateOf(0) }
     val ltUnreadCount = (ltUserMessages.size - ltLastReadCount).coerceAtLeast(0)
 
+  val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var dismissJob: Job? by remember { mutableStateOf(null) }
 
@@ -309,6 +312,7 @@ fun Queue(
     }
     var sleepTimerTimeLeft by remember { mutableLongStateOf(0L) }
     var showCommentSheet by rememberSaveable { mutableStateOf(false) }
+  var showClearQueueDialog by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(sleepTimerEnabled) {
         if (sleepTimerEnabled) {
@@ -507,6 +511,8 @@ fun Queue(
                                         mediaMetadata = mediaMetadata,
                                         navController = navController,
                                         playerBottomSheetState = playerBottomSheetState,
+                    isQueueLocked = locked,
+                    inSelectMode = inSelectMode,
                                         onShowDetailsDialog = {
                                             mediaMetadata?.id?.let {
                                                 bottomSheetPageState.show {
@@ -514,6 +520,7 @@ fun Queue(
                                                 }
                                             }
                                         },
+                    onClearQueue = { showClearQueueDialog = true },
                                         onDismiss = menuState::dismiss
                                     )
                                 }
@@ -745,8 +752,6 @@ fun Queue(
                 queueWindows.sumOf { it.mediaItem.metadata!!.duration }
             }
 
-        val coroutineScope = rememberCoroutineScope()
-
         val headerItems = 1
         val lazyListState = rememberLazyListState()
         var dragInfo by remember { mutableStateOf<Pair<Int, Int>?>(null) }
@@ -918,6 +923,8 @@ fun Queue(
                                         mediaMetadata = mediaMetadata,
                                         navController = navController,
                                         playerBottomSheetState = playerBottomSheetState,
+                    isQueueLocked = locked,
+                    inSelectMode = inSelectMode,
                                         onShowDetailsDialog = {
                                             mediaMetadata?.id?.let {
                                                 bottomSheetPageState.show {
@@ -925,6 +932,7 @@ fun Queue(
                                                 }
                                             }
                                         },
+                    onClearQueue = { showClearQueueDialog = true },
                                         onDismiss = menuState::dismiss
                                     )
                                 }
@@ -1071,6 +1079,10 @@ fun Queue(
                         )
                     }
 
+          Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+          ) {
                     Column(
                         horizontalAlignment = Alignment.End,
                         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -1090,6 +1102,29 @@ fun Queue(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+
+            val hasUpcomingSongs =
+              currentWindowIndex != -1 && currentWindowIndex < queueWindows.lastIndex
+            if (!locked && !isListenTogetherGuest && !inSelectMode && hasUpcomingSongs) {
+              TooltipBox(
+                positionProvider =
+                  TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                tooltip = { PlainTooltip { Text(stringResource(R.string.clear_queue)) } },
+                state = rememberTooltipState(),
+              ) {
+                FilledTonalIconButton(
+                  onClick = { showClearQueueDialog = true },
+                  modifier = Modifier.size(36.dp)
+                ) {
+                  Icon(
+                    painter = painterResource(R.drawable.clear_all),
+                    contentDescription = stringResource(R.string.clear_queue),
+                    modifier = Modifier.size(20.dp)
+                  )
+                }
+              }
+            }
+          }
                 }
 
                 AnimatedVisibility(
@@ -1252,6 +1287,8 @@ fun Queue(
                                         isActive = isActive,
                                         isPlaying = isPlaying && isActive,
                                         shape = listItemShape(index, mutableQueueWindows.size),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    verticalPadding = 0.dp,
                                         trailingContent = {
                                             if (inSelectMode) {
                                                 Checkbox(
@@ -1384,6 +1421,8 @@ fun Queue(
                                 MediaMetadataListItem(
                                     mediaMetadata = item.metadata!!,
                                     shape = listItemShape(index, automix.size),
+                  color = MaterialTheme.colorScheme.surfaceVariant,
+                  verticalPadding = 0.dp,
                                     trailingContent = {
                                         if (!isListenTogetherGuest) {
                                             IconButton(
@@ -1476,6 +1515,54 @@ fun Queue(
             onDismiss = { showLtChatModal = false }
         )
     }
+
+  if (showClearQueueDialog) {
+    DefaultDialog(
+      onDismiss = { showClearQueueDialog = false },
+      icon = {
+        Icon(
+          painter = painterResource(R.drawable.clear_all),
+          contentDescription = null,
+          modifier = Modifier.size(24.dp)
+        )
+      },
+      title = { Text(stringResource(R.string.clear_queue)) },
+      buttons = {
+        TextButton(onClick = { showClearQueueDialog = false }) {
+          Text(stringResource(R.string.cancel))
+        }
+        Spacer(Modifier.width(8.dp))
+        Button(
+          onClick = {
+            showClearQueueDialog = false
+            val clearedState = playerConnection.clearQueue()
+            if (clearedState != null && clearedState.removedItems.isNotEmpty()) {
+              dismissJob?.cancel()
+              dismissJob =
+                coroutineScope.launch {
+                  val snackbarResult =
+                    snackbarHostState.showSnackbar(
+                      message = context.getString(R.string.queue_cleared),
+                      actionLabel = context.getString(R.string.undo),
+                      duration = SnackbarDuration.Short,
+                    )
+                  if (snackbarResult == SnackbarResult.ActionPerformed) {
+                    playerConnection.restoreQueue(clearedState)
+                  }
+                }
+            }
+          }
+        ) {
+          Text(stringResource(R.string.clear))
+        }
+      }
+    ) {
+      Text(
+        text = stringResource(R.string.clear_queue_confirm),
+        style = MaterialTheme.typography.bodyMedium
+      )
+    }
+  }
 }
 
 @Composable
@@ -1532,10 +1619,13 @@ private fun PlayerQueueButton(
                 iconButtonColor
             } else {
                 when (playerBackground) {
-                    PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT, PlayerBackgroundStyle.GLOW_ANIMATED, PlayerBackgroundStyle.APPLE_MUSIC, PlayerBackgroundStyle.LIVE_MESH, PlayerBackgroundStyle.LIQUID_GLASS ->
-                        Color.White
-                    PlayerBackgroundStyle.DEFAULT ->
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+            PlayerBackgroundStyle.BLUR,
+            PlayerBackgroundStyle.GRADIENT,
+            PlayerBackgroundStyle.GLOW_ANIMATED,
+            PlayerBackgroundStyle.APPLE_MUSIC,
+            PlayerBackgroundStyle.LIVE_MESH,
+            PlayerBackgroundStyle.LIQUID_GLASS -> Color.White
+            PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                 }
             }
             val finalTint = if (enabled) baseTint else baseTint.copy(alpha = 0.5f)

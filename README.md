@@ -65,20 +65,6 @@ Echo Music delivers a seamless, premium listening experience by leveraging YouTu
         <img src="Screenshots/library.png" alt="Music Library" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
       </td>
     </tr>
-    <tr>
-      <td align="center" style="padding: 15px; border: none;">
-        <b>Liquid Glass Default</b><br><br>
-        <img src="Screenshots/Liquid%20Glass%20Default.png" alt="Liquid Glass Default" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
-      </td>
-      <td align="center" style="padding: 15px; border: none;">
-        <b>Liquid Glass (Apple)</b><br><br>
-        <img src="Screenshots/Liquid%20Glass%20Apple%20Inspired.png" alt="Liquid Glass (Apple)" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
-      </td>
-      <td align="center" style="padding: 15px; border: none;">
-        <b>Liquid Glass (Scrolling)</b><br><br>
-        <img src="Screenshots/Liquid%20Glass%20Apple%20Inspired%20(While%20Scrolling).png" alt="Liquid Glass (Scrolling)" width="220" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/>
-      </td>
-    </tr>
   </table>
 </div>
 
@@ -104,7 +90,6 @@ Echo Music delivers a seamless, premium listening experience by leveraging YouTu
 <br>
 
 - **Ad-Free** — Stream without any interruptions.
-- **InnerTubeX Engine** — Highly resilient playback engine bypassing age-restrictions and BotGuard with chunked caching and zero-latency read-ahead.
 - **Data Saver Mode** — Reduce data consumption when streaming on cellular networks.
 - **Seamless Playback** — Switch effortlessly between audio-only and video modes.
 - **Background Playback** — Listen while using other apps or with the screen off.
@@ -228,10 +213,10 @@ If Echo Music has been useful to you, consider supporting its development.
         <a href="https://buymeacoffee.com/iad1tya" style="text-decoration:none;"><img src="assets/bmac.png" alt="Buy Me A Coffee Logo" width="140" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/></a>
       </td>
       <td align="center" style="padding: 15px; border: none;">
-        <a href="https://intradeus.github.io/http-protocol-redirector/?r=upi://pay?pa=iad1tya@upi&pn=Aditya%20Yadav&am=&tn=Thank%20You" style="text-decoration:none;"><img src="assets/upi.svg" alt="UPI Logo" width="100" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/></a>
+        <a href="https://intradeus.github.io/http-protocol-redirector/?r=upi://pay?pa=iad1tya@upi&pn=Aditya%20Yadav&am=&tn=Thank%20You" style="text-decoration:none;"><img src="assets/UPI.png" alt="UPI Logo" width="140" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/></a>
       </td>
       <td align="center" style="padding: 15px; border: none;">
-        <a href="https://www.patreon.com/cw/iad1tya" style="text-decoration:none;"><img src="assets/patreon3.png" alt="Patreon Logo" width="100" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/></a>
+        <a href="https://www.patreon.com/cw/iad1tya" style="text-decoration:none;"><img src="assets/patreon3.webp" alt="Patreon Logo" width="140" style="border-radius: 12px; box-shadow: 0 8px 16px rgba(0,0,0,0.2);"/></a>
       </td>
     </tr>
   </table>
@@ -259,7 +244,8 @@ Without the support of this incredible open-source community, none of this would
 
 <!-- readme: contributors -start -->
 <table>
-<tr><td align="center"><a href="https://github.com/iad1tya"><img src="https://avatars.githubusercontent.com/u/147871321?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/mdakashhossain1"><img src="https://avatars.githubusercontent.com/u/85729564?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/Rajendra0309"><img src="https://avatars.githubusercontent.com/u/103703747?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/soumya-99"><img src="https://avatars.githubusercontent.com/u/59480692?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/kaunkrishna"><img src="https://avatars.githubusercontent.com/u/270065466?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/VardhmanSurana"><img src="https://avatars.githubusercontent.com/u/100058534?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/andrewvalletta"><img src="https://avatars.githubusercontent.com/u/137303110?v=4" width="60" height="60" /></a></td></tr>
+<tr><td align="center"><a href="https://github.com/iad1tya"><img src="https://avatars.githubusercontent.com/u/147871321?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/Roshan-aa11"><img src="https://avatars.githubusercontent.com/u/192568043?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/mdakashhossain1"><img src="https://avatars.githubusercontent.com/u/85729564?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/Rajendra0309"><img src="https://avatars.githubusercontent.com/u/103703747?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/soumya-99"><img src="https://avatars.githubusercontent.com/u/59480692?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/VardhmanSurana"><img src="https://avatars.githubusercontent.com/u/100058534?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/kaunkrishna"><img src="https://avatars.githubusercontent.com/u/270065466?v=4" width="60" height="60" /></a></td><td align="center"><a href="https://github.com/andrewvalletta"><img src="https://avatars.githubusercontent.com/u/137303110?v=4" width="60" height="60" /></a></td></tr>
+<tr><td align="center"><a href="https://github.com/Thibaultjaigu"><img src="https://avatars.githubusercontent.com/u/84420566?v=4" width="60" height="60" /></a></td></tr>
 </table>
 <!-- readme: contributors -end -->
 
@@ -278,7 +264,6 @@ Echo Music stands on the shoulders of several excellent open-source projects. Si
 | **[SimpMusic](https://github.com/maxrave-dev/SimpMusic)**                                                                 | Lyrics implementation reference                     |
 | **[Music Recognizer](https://github.com/aleksey-saenko/MusicRecognizer)**                                                 | Audio recognition (Echo Find)                       |
 | **[BravePipe](https://github.com/bravepipeproject/BravePipe)**                                                            | Decryption handling and backup playback engine      |
-| **[InnerTubeX](https://github.com/MetrolistGroup/innertubex)**                                                            | Advanced stream resolution, playback resilience, and BotGuard bypass      |
 
 ---
 
