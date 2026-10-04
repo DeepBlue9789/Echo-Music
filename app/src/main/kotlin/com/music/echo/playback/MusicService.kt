@@ -1105,9 +1105,6 @@ class MusicService :
               }
           }
 
-                }
-            }
-
           queueRestored = true
         }
       }

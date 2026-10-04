@@ -48,6 +48,7 @@ import echo.music.iad1tya.constants.CrossfadeGaplessKey
 import echo.music.iad1tya.constants.AutoLoadMoreKey
 import echo.music.iad1tya.constants.AutoSkipNextOnErrorKey
 import echo.music.iad1tya.constants.DisableLoadMoreWhenRepeatAllKey
+import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
 import echo.music.iad1tya.constants.DownloadWithMetadataKey
 import echo.music.iad1tya.constants.EnableExportAsMp3Key
 import echo.music.iad1tya.constants.JioSaavnOnWifiOnlyKey
