@@ -24,6 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -54,6 +58,7 @@ fun LibraryScreen(navController: NavController) {
   var showYoutubeImportDialog by remember { mutableStateOf(false) }
   var showCreatePlaylistDialog by rememberSaveable { mutableStateOf(false) }
   var showCreatePlaylistOptionsDialog by rememberSaveable { mutableStateOf(false) }
+  var showTasteGenerationDialog by rememberSaveable { mutableStateOf(false) }
   var showAiPlaylistDialog by rememberSaveable { mutableStateOf(false) }
   val context = LocalContext.current
 
@@ -157,6 +162,16 @@ fun LibraryScreen(navController: NavController) {
                 onClick = {
                   showFabMenu = false
                   showCreatePlaylistOptionsDialog = true
+                }
+              ),
+              Material3SettingsItem(
+                title = { Text("Create from Taste") },
+                icon = painterResource(R.drawable.tast),
+                tintIcon = false,
+                iconShape = androidx.compose.foundation.shape.CircleShape,
+                onClick = {
+                  showFabMenu = false
+                  showTasteGenerationDialog = true
                 }
               ),
               Material3SettingsItem(
@@ -282,7 +297,7 @@ fun LibraryScreen(navController: NavController) {
         ) {
           echo.music.iad1tya.ui.component.PreferenceEntry(
             icon = {
-              Icon(painter = painterResource(R.drawable.sparks), contentDescription = null)
+              androidx.compose.foundation.Image(painter = painterResource(R.drawable.ai_pfp), contentDescription = null, modifier = Modifier.size(24.dp).clip(androidx.compose.foundation.shape.CircleShape))
             },
             title = { Text(stringResource(R.string.create_playlist_with_ai)) },
             description = "AI-powered playlist generation",
@@ -301,6 +316,16 @@ fun LibraryScreen(navController: NavController) {
       onDismiss = { showAiPlaylistDialog = false },
       onPlaylistCreated = { playlistId ->
         showAiPlaylistDialog = false
+        navController.navigate("local_playlist/$playlistId")
+      }
+    )
+  }
+
+  if (showTasteGenerationDialog) {
+    echo.music.iad1tya.ui.component.CreateFromTasteDialog(
+      onDismiss = { showTasteGenerationDialog = false },
+      onPlaylistCreated = { playlistId ->
+        showTasteGenerationDialog = false
         navController.navigate("local_playlist/$playlistId")
       }
     )

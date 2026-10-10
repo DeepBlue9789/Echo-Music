@@ -9,7 +9,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
+import android.provider.Settings
 import android.util.Log
+import echo.music.iad1tya.echomusic.AudioDeviceBottomSheet
 import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.WindowManager
@@ -78,18 +80,16 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -123,6 +123,8 @@ import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.request.crossfade
 import coil3.toBitmap
+import com.music.echo.utils.HapticType
+import com.music.echo.utils.rememberHapticHelper
 import com.music.innertube.YouTube
 import com.music.innertube.models.SongItem
 import com.music.innertube.models.WatchEndpoint
@@ -208,6 +210,14 @@ import echo.music.iad1tya.ui.utils.appBarScrollBehavior
 import echo.music.iad1tya.ui.utils.resetHeightOffset
 import echo.music.iad1tya.utils.SyncUtils
 import echo.music.iad1tya.utils.dataStore
+import echo.music.iad1tya.ai.AiRecommendationHelper
+import echo.music.iad1tya.constants.AiRecommendationsKey
+import echo.music.iad1tya.constants.LastAiRecommendationUpdateDayKey
+import echo.music.iad1tya.constants.CreateFromTasteDailyKey
+import echo.music.iad1tya.constants.LastCreateFromTasteUpdateDayKey
+import androidx.datastore.preferences.core.edit
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import echo.music.iad1tya.utils.get
 import echo.music.iad1tya.utils.rememberEnumPreference
 import echo.music.iad1tya.utils.rememberPreference
@@ -223,8 +233,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
-
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -245,10 +253,18 @@ class MainActivity : ComponentActivity() {
     const val ACTION_SEARCH = "echo.music.iad1tya.action.SEARCH"
     const val ACTION_LIBRARY = "echo.music.iad1tya.action.LIBRARY"
     const val ACTION_RECOGNITION = "echo.music.iad1tya.action.RECOGNITION"
+    const val ACTION_NOW_PLAYING = "echo.music.iad1tya.action.NOW_PLAYING"
+    const val ACTION_QUEUE = "echo.music.iad1tya.action.QUEUE"
+    const val ACTION_OUTPUT_SWITCHER = "echo.music.iad1tya.action.OUTPUT_SWITCHER"
+    const val ACTION_SONG_OPTIONS = "echo.music.iad1tya.action.SONG_OPTIONS"
+    const val ACTION_LYRICS = "echo.music.iad1tya.action.LYRICS"
+    const val ACTION_MEDIA_OUTPUT = "com.android.settings.panel.action.MEDIA_OUTPUT"
+    const val EXTRA_MEDIA_OUTPUT_PACKAGE_NAME = "com.android.settings.panel.extra.PACKAGE_NAME"
     const val EXTRA_AUTO_START_RECOGNITION = "auto_start_recognition"
   }
 
   @Inject lateinit var database: MusicDatabase
+  @Inject lateinit var localTasteEngine: echo.music.iad1tya.generate.LocalTasteEngine
 
   @Inject lateinit var downloadUtil: DownloadUtil
 
@@ -333,6 +349,7 @@ class MainActivity : ComponentActivity() {
 
   override fun onNewIntent(intent: Intent) {
     super.onNewIntent(intent)
+    setIntent(intent)
     if (::navController.isInitialized) {
       handleDeepLinkIntent(intent, navController)
       handleRecognitionIntent(intent, navController)
@@ -398,6 +415,16 @@ class MainActivity : ComponentActivity() {
     }
 
     lifecycleScope.launch {
+      val aiRecommendationsEnabled = dataStore.data.map { it[AiRecommendationsKey] ?: false }.first()
+      if (aiRecommendationsEnabled) {
+        val lastUpdate = dataStore.data.map { it[LastAiRecommendationUpdateDayKey] ?: 0L }.first()
+        val currentDay = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+        if (lastUpdate != currentDay) {
+          dataStore.edit { it[LastAiRecommendationUpdateDayKey] = currentDay }
+          AiRecommendationHelper.generateRecommendations(this@MainActivity)
+        }
+      }
+
       dataStore.data
         .map {
           (try {
@@ -420,6 +447,16 @@ class MainActivity : ComponentActivity() {
     }
 
     lifecycleScope.launch {
+      val aiRecommendationsEnabled = dataStore.data.map { it[AiRecommendationsKey] ?: false }.first()
+      if (aiRecommendationsEnabled) {
+        val lastUpdate = dataStore.data.map { it[LastAiRecommendationUpdateDayKey] ?: 0L }.first()
+        val currentDay = System.currentTimeMillis() / (1000 * 60 * 60 * 24)
+        if (lastUpdate != currentDay) {
+          dataStore.edit { it[LastAiRecommendationUpdateDayKey] = currentDay }
+          AiRecommendationHelper.generateRecommendations(this@MainActivity)
+        }
+      }
+
       dataStore.data
         .map {
           (try {
@@ -702,16 +739,13 @@ class MainActivity : ComponentActivity() {
       }
     }
 
-    val (enableHaptics) =
-      rememberPreference(echo.music.iad1tya.constants.EnableHapticsKey, defaultValue = false)
-    val view = LocalView.current
-    var lastScrollHapticTime by remember { mutableStateOf(0L) }
-
     echomusicTheme(
       darkTheme = useDarkTheme,
       pureBlack = pureBlack,
       themeColor = themeColor,
     ) {
+      val hapticHelper = rememberHapticHelper()
+
       if (showUpdateDialog) {
         echo.music.iad1tya.echomusic.component.UpdateAvailableDialog(
           version = availableUpdateVersion,
@@ -738,23 +772,14 @@ class MainActivity : ComponentActivity() {
         modifier =
           Modifier.fillMaxSize()
             .background(if (pureBlack) Color.Black else MaterialTheme.colorScheme.surface)
-            .pointerInput(enableHaptics) {
-              if (enableHaptics) {
+            .pointerInput(hapticHelper) {
+              if (hapticHelper.masterEnabled && hapticHelper.clickEnabled) {
                 awaitPointerEventScope {
                   while (true) {
                     val event =
                       awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                    val isClick = event.changes.any { it.changedToDown() }
-                    val isScroll =
-                      event.changes.any { it.positionChange() != Offset.Zero && it.pressed }
-                    if (isClick) {
-                      view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                    } else if (isScroll) {
-                      val currentTime = System.currentTimeMillis()
-                      if (currentTime - lastScrollHapticTime > 100) {
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        lastScrollHapticTime = currentTime
-                      }
+                    if (event.changes.any { it.changedToDown() }) {
+                      hapticHelper.performHaptic(HapticType.CLICK)
                     }
                   }
                 }
@@ -891,6 +916,52 @@ class MainActivity : ComponentActivity() {
             expandedBound = maxHeight,
           )
 
+        var expandQueueRequested by remember { mutableStateOf(false) }
+        var showPlayerMenuRequested by remember { mutableStateOf(false) }
+        var showAudioDeviceBottomSheet by remember { mutableStateOf(false) }
+        var showLyricsRequested by remember { mutableStateOf(false) }
+
+        val handleWidgetAction: (Intent) -> Unit = remember {
+          { targetIntent ->
+            when (targetIntent.action) {
+              ACTION_NOW_PLAYING -> {
+                playerBottomSheetState.expandSoft()
+              }
+              ACTION_QUEUE -> {
+                playerBottomSheetState.expandSoft()
+                expandQueueRequested = true
+              }
+              ACTION_SONG_OPTIONS -> {
+                playerBottomSheetState.expandSoft()
+                showPlayerMenuRequested = true
+              }
+              ACTION_OUTPUT_SWITCHER -> {
+                var launchedSystemPanel = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                  try {
+                    val panelIntent =
+                      Intent(ACTION_MEDIA_OUTPUT).apply {
+                        putExtra(EXTRA_MEDIA_OUTPUT_PACKAGE_NAME, packageName)
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                      }
+                    if (packageManager.resolveActivity(panelIntent, 0) != null) {
+                      startActivity(panelIntent)
+                      launchedSystemPanel = true
+                    }
+                  } catch (_: Exception) {}
+                }
+                if (!launchedSystemPanel) {
+                  showAudioDeviceBottomSheet = true
+                }
+              }
+              ACTION_LYRICS -> {
+                playerBottomSheetState.expandSoft()
+                showLyricsRequested = true
+              }
+            }
+          }
+        }
+
         val onShuffleClick: (() -> Unit)? =
           remember(playerConnection, playerBottomSheetState) {
             playerConnection?.let { connection ->
@@ -1024,6 +1095,10 @@ class MainActivity : ComponentActivity() {
         }
 
         LaunchedEffect(Unit) {
+          val activeIntent = pendingIntent ?: intent
+          if (activeIntent != null) {
+            handleWidgetAction(activeIntent)
+          }
           if (pendingIntent != null) {
             handleDeepLinkIntent(pendingIntent!!, navController)
             handleRecognitionIntent(pendingIntent!!, navController)
@@ -1046,15 +1121,16 @@ class MainActivity : ComponentActivity() {
 
         DisposableEffect(Unit) {
           val listener =
-            Consumer<Intent> { intent ->
-              if (intent.action == Intent.ACTION_VIEW || intent.action == Intent.ACTION_SEND) {
-                handleDeepLinkIntent(intent, navController)
-              } else if (intent.action == ACTION_RECOGNITION) {
-                handleRecognitionIntent(intent, navController)
+            Consumer<Intent> { newIntent ->
+              handleWidgetAction(newIntent)
+              if (newIntent.action == Intent.ACTION_VIEW || newIntent.action == Intent.ACTION_SEND) {
+                handleDeepLinkIntent(newIntent, navController)
+              } else if (newIntent.action == ACTION_RECOGNITION) {
+                handleRecognitionIntent(newIntent, navController)
               } else if (
-                intent.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH
+                newIntent.action == android.provider.MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH
               ) {
-                handleAssistantSearchIntent(intent, navController)
+                handleAssistantSearchIntent(newIntent, navController)
               }
             }
 
@@ -1150,7 +1226,26 @@ class MainActivity : ComponentActivity() {
         val ringtoneViewModel: RingtoneViewModel = viewModel()
         val ringtoneUiState by ringtoneViewModel.uiState.collectAsState()
 
+        val customHapticFeedback =
+          remember(hapticHelper) {
+            object : androidx.compose.ui.hapticfeedback.HapticFeedback {
+              override fun performHapticFeedback(
+                hapticFeedbackType: androidx.compose.ui.hapticfeedback.HapticFeedbackType
+              ) {
+                when (hapticFeedbackType) {
+                  androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress ->
+                    hapticHelper.performHaptic(HapticType.LONG_PRESS)
+                  androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove -> {
+                    // Do not invoke hapticHelper for TextHandleMove
+                  }
+                  else -> hapticHelper.performHaptic(HapticType.CLICK)
+                }
+              }
+            }
+          }
+
         CompositionLocalProvider(
+          LocalHapticFeedback provides customHapticFeedback,
           LocalGlassEffectConfig provides glassEffectConfig,
           LocalAppBackdrop provides appBackdrop,
           LocalRingtoneViewModel provides ringtoneViewModel,
@@ -1290,7 +1385,13 @@ class MainActivity : ComponentActivity() {
                   BottomSheetPlayer(
                     state = playerBottomSheetState,
                     navController = navController,
-                    pureBlack = pureBlack
+                    pureBlack = pureBlack,
+                    expandQueueRequested = expandQueueRequested,
+                    onQueueExpanded = { expandQueueRequested = false },
+                    showPlayerMenuRequested = showPlayerMenuRequested,
+                    onPlayerMenuShown = { showPlayerMenuRequested = false },
+                    showLyricsRequested = showLyricsRequested,
+                    onLyricsShown = { showLyricsRequested = false },
                   )
 
                   val navSlideDistance =
@@ -1360,7 +1461,7 @@ class MainActivity : ComponentActivity() {
                         onAiHubClick = {
                           navController.navigate("settings/ai") { launchSingleTop = true }
                         },
-                        aiHubIconRes = R.drawable.sparks,
+                        aiHubIconRes = R.drawable.ai_pfp,
                         aiHubContentDescription = stringResource(R.string.ai_lyrics_translation),
                         onSearchLongClick = onRailSearchLongClick,
                         isSelected = { screen ->
@@ -1409,7 +1510,13 @@ class MainActivity : ComponentActivity() {
                   BottomSheetPlayer(
                     state = playerBottomSheetState,
                     navController = navController,
-                    pureBlack = pureBlack
+                    pureBlack = pureBlack,
+                    expandQueueRequested = expandQueueRequested,
+                    onQueueExpanded = { expandQueueRequested = false },
+                    showPlayerMenuRequested = showPlayerMenuRequested,
+                    onPlayerMenuShown = { showPlayerMenuRequested = false },
+                    showLyricsRequested = showLyricsRequested,
+                    onLyricsShown = { showLyricsRequested = false },
                   )
                 }
 
@@ -1484,7 +1591,7 @@ class MainActivity : ComponentActivity() {
                   onAiHubClick = {
                     navController.navigate("settings/ai") { launchSingleTop = true }
                   },
-                  aiHubIconRes = R.drawable.sparks,
+                  aiHubIconRes = R.drawable.ai_pfp,
                   aiHubContentDescription = stringResource(R.string.ai_lyrics_translation)
                 )
               }
@@ -1582,6 +1689,12 @@ class MainActivity : ComponentActivity() {
             modifier = Modifier.align(Alignment.BottomCenter)
           )
 
+          if (showAudioDeviceBottomSheet) {
+            AudioDeviceBottomSheet(
+              onDismiss = { showAudioDeviceBottomSheet = false }
+            )
+          }
+
           sharedSong?.let { song ->
             playerConnection?.let {
               Dialog(
@@ -1648,7 +1761,10 @@ class MainActivity : ComponentActivity() {
               onDismissRequest = {
                 showWelcomeDialog = false
                 coroutineScope.launch {
-                  context.dataStore.edit { it[echo.music.iad1tya.constants.LastOpenedVersionCodeKey] = BuildConfig.VERSION_CODE }
+                  context.dataStore.edit {
+                    it[echo.music.iad1tya.constants.LastOpenedVersionCodeKey] =
+                      BuildConfig.VERSION_CODE
+                  }
                 }
               }
             )

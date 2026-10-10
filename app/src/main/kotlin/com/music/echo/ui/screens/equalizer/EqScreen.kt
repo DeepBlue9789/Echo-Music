@@ -51,7 +51,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import echo.music.iad1tya.LocalPlayerConnection
 import echo.music.iad1tya.R
-import echo.music.iad1tya.eq.data.SavedEQProfile
+import echo.music.dsp.core.models.SavedEQProfile
 import timber.log.Timber
 
 @SuppressLint("LocalContextGetResourceValueCall")

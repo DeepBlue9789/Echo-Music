@@ -27,6 +27,23 @@ val AppIconTypeKey = stringPreferencesKey("app_icon_type")
 
 val EnableHighRefreshRateKey = booleanPreferencesKey("enableHighRefreshRate")
 val EnableHapticsKey = booleanPreferencesKey("enableHaptics")
+val HapticIntensityKey = stringPreferencesKey("haptic_intensity")
+val EnableClickHapticsKey = booleanPreferencesKey("enable_click_haptics")
+val EnableLongPressHapticsKey = booleanPreferencesKey("enable_long_press_haptics")
+val EnableScrollEdgeHapticsKey = booleanPreferencesKey("enable_scroll_edge_haptics")
+val EnableSliderHapticsKey = booleanPreferencesKey("enable_slider_haptics")
+
+enum class HapticIntensity(val label: String, val scaleFactor: Float) {
+  LIGHT("Light", 0.4f),
+  MEDIUM("Medium", 0.75f),
+  STRONG("Strong", 1.0f);
+
+  companion object {
+    fun fromName(name: String?): HapticIntensity =
+      entries.find { it.name.equals(name, ignoreCase = true) } ?: MEDIUM
+  }
+}
+
 val DynamicThemeKey = booleanPreferencesKey("dynamicTheme")
 val SelectedThemeColorKey = intPreferencesKey("selectedThemeColor")
 val DarkModeKey = stringPreferencesKey("darkMode")
@@ -64,6 +81,8 @@ val HidePlayerThumbnailKey = booleanPreferencesKey("hidePlayerThumbnail")
 val ThumbnailCornerRadiusKey = floatPreferencesKey("thumbnailCornerRadius")
 val CropAlbumArtKey = booleanPreferencesKey("cropAlbumArt")
 val SeekExtraSeconds = booleanPreferencesKey("seekExtraSeconds")
+val VarispeedKey = booleanPreferencesKey("varispeed")
+
 val PauseOnMute = booleanPreferencesKey("pauseOnMute")
 val ResumeOnBluetoothConnectKey = booleanPreferencesKey("resumeOnBluetoothConnect")
 val KeepScreenOn = booleanPreferencesKey("keepScreenOn")
@@ -525,6 +544,9 @@ val TranslateModeKey = stringPreferencesKey("translateMode")
 val TranslateLanguageKey = stringPreferencesKey("translateLanguage")
 val AutoTranslateKey = booleanPreferencesKey("autoTranslate")
 val AiRecommendationsKey = booleanPreferencesKey("aiRecommendations")
+val LastAiRecommendationUpdateDayKey = longPreferencesKey("lastAiRecommendationUpdateDay")
+val CreateFromTasteDailyKey = booleanPreferencesKey("createFromTasteDaily")
+val LastCreateFromTasteUpdateDayKey = longPreferencesKey("lastCreateFromTasteUpdateDay")
 val DeeplApiKey = stringPreferencesKey("deeplApiKey")
 val DeeplFormalityKey = stringPreferencesKey("deeplFormality")
 val LyricsGlowEffectKey = booleanPreferencesKey("lyricsGlowEffect")
@@ -863,7 +885,6 @@ val AmbientFullScreenArtKey = booleanPreferencesKey("ambient_full_screen_art")
 
 val AmbientSpacingKey = floatPreferencesKey("ambient_spacing")
 
-
 enum class AppFont(val value: String) {
     SYSTEM("system"),
     GOOGLE_SANS("google_sans"),
@@ -881,3 +902,13 @@ val SelectedFontKey = stringPreferencesKey("selected_app_font")
 val CustomFontPathKey = androidx.datastore.preferences.core.stringPreferencesKey("custom_font_path")
 val BlockedArtistsKey =
   androidx.datastore.preferences.core.stringSetPreferencesKey("blockedArtists")
+
+val EnableBitPerfectUsbDacKey = booleanPreferencesKey("enable_bit_perfect_usb_dac")
+val UsbDacVolumeModeKey = stringPreferencesKey("usb_dac_volume_mode")
+
+enum class RecommendationSource {
+    YOUTUBE,
+    SPOTIFY
+}
+
+val RecommendationSourceKey = stringPreferencesKey("recommendation_source")

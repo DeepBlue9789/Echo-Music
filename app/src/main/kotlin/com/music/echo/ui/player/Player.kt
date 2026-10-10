@@ -280,6 +280,12 @@ fun BottomSheetPlayer(
   navController: NavController,
   modifier: Modifier = Modifier,
   pureBlack: Boolean,
+  expandQueueRequested: Boolean = false,
+  onQueueExpanded: () -> Unit = {},
+  showPlayerMenuRequested: Boolean = false,
+  onPlayerMenuShown: () -> Unit = {},
+  showLyricsRequested: Boolean = false,
+  onLyricsShown: () -> Unit = {},
 ) {
   val context = LocalContext.current
   val database = LocalDatabase.current
@@ -928,7 +934,10 @@ fun BottomSheetPlayer(
         delay(200)
         if (sliderPosition == null) {
           position = playerConnection.player.currentPosition
-          duration = playerConnection.player.duration
+          duration = echo.music.iad1tya.playback.PlaybackCutoffGuard.computeEffectiveDuration(
+            mediaMetadata?.duration,
+            playerConnection.player.duration
+          )
         }
       }
     }
@@ -937,7 +946,10 @@ fun BottomSheetPlayer(
   LaunchedEffect(playbackState, mediaMetadata?.id) {
     if (!isCasting) {
       position = playerConnection.player.currentPosition
-      duration = playerConnection.player.duration
+      duration = echo.music.iad1tya.playback.PlaybackCutoffGuard.computeEffectiveDuration(
+        mediaMetadata?.duration,
+        playerConnection.player.duration
+      )
     }
   }
 
@@ -962,6 +974,42 @@ fun BottomSheetPlayer(
       collapsedBound = dismissedBound + 1.dp,
       initialAnchor = 1
     )
+
+  LaunchedEffect(expandQueueRequested) {
+    if (expandQueueRequested) {
+      state.expandSoft()
+      queueSheetState.expandSoft()
+      onQueueExpanded()
+    }
+  }
+
+  LaunchedEffect(showPlayerMenuRequested, mediaMetadata) {
+    if (showPlayerMenuRequested && mediaMetadata != null) {
+      state.expandSoft()
+      menuState.show {
+        PlayerMenu(
+          mediaMetadata = mediaMetadata!!,
+          navController = navController,
+          playerBottomSheetState = state,
+          onShowDetailsDialog = {
+            mediaMetadata?.id?.let { id ->
+              bottomSheetPageState.show { ShowMediaInfo(id) }
+            }
+          },
+          onDismiss = menuState::dismiss
+        )
+      }
+      onPlayerMenuShown()
+    }
+  }
+
+  LaunchedEffect(showLyricsRequested) {
+    if (showLyricsRequested) {
+      state.expandSoft()
+      showInlineLyrics = true
+      onLyricsShown()
+    }
+  }
 
   val bottomSheetBackgroundColor =
     when {
@@ -2932,6 +2980,7 @@ fun BottomSheetPlayer(
 fun InlineLyricsView(
   mediaMetadata: MediaMetadata?,
   showLyrics: Boolean,
+  modifier: Modifier = Modifier,
   positionProvider: () -> Long
 ) {
   val playerConnection = LocalPlayerConnection.current ?: return
@@ -2970,7 +3019,7 @@ fun InlineLyricsView(
   }
 
   Box(
-    modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
+    modifier = modifier.fillMaxSize().clip(RoundedCornerShape(12.dp)),
     contentAlignment = Alignment.Center
   ) {
     when {
