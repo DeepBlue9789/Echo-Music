@@ -112,6 +112,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
@@ -1259,6 +1260,7 @@ fun Lyrics(
                             this.alpha = if (item.isBackground) alpha * 0.8f else alpha
                             this.scaleX = scale * bgScale
                             this.scaleY = scale * bgScale
+<<<<<<< HEAD
                             if (blurRadius > 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                                 this.renderEffect = android.graphics.RenderEffect.createBlurEffect(
                                     blurRadius * density.density,
@@ -1267,6 +1269,9 @@ fun Lyrics(
                                 ).asComposeRenderEffect()
                             }
                         },
+=======
+                }.blur(blurRadius.dp),
+>>>>>>> v1.4.2
                         horizontalAlignment = agentAlignment
                     ) {
                         

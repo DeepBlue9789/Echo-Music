@@ -26,14 +26,14 @@ if (hasGoogleServicesConfig) {
 android {
     namespace = "echo.music.iad1tya"
   compileSdk = 37
-    ndkVersion = "27.0.12077973"
+  ndkVersion = "28.2.13676358"
 
 
     defaultConfig {
         applicationId = "echo.music.iad1tya"
         minSdk = 26
         targetSdk = 36
-        val envVersionName = System.getenv("APP_VERSION_NAME") ?: project.findProperty("versionName")?.toString() ?: "1.4.1"
+        val envVersionName = System.getenv("APP_VERSION_NAME") ?: project.findProperty("versionName")?.toString() ?: "1.4.2"
         val defaultOrParsedCode = run {
             val clean = envVersionName.removePrefix("v").trim()
             val base = clean.split("-").first()
@@ -42,7 +42,7 @@ android {
             if (parts.size >= 3 && d != null) {
                 parts[0] * 1000000 + parts[1] * 10000 + parts[2] * 100 + d
             } else null
-        } ?: 162
+        } ?: 163
         val envVersionCode = System.getenv("APP_VERSION_CODE")?.toIntOrNull()
             ?: project.findProperty("versionCode")?.toString()?.toIntOrNull()
             ?: defaultOrParsedCode
@@ -285,13 +285,16 @@ dependencies {
 
     implementation(project(":core"))
     implementation(project(":playback"))
+  implementation(project(":audio-dsp"))
+  implementation(project(":dsp-core"))
+  implementation(project(":usbaudio"))
 
 
     // GMS Location Services for high-accuracy weather AI context
     "gmsImplementation"(libs.play.services.location)
 
     // Firebase - GMS flavor only (excluded from F-Droid / FOSS builds)
-    "gmsImplementation"(platform("com.google.firebase:firebase-bom:33.1.0"))
+  "gmsImplementation"(platform("com.google.firebase:firebase-bom:34.19.0"))
     "gmsImplementation"("com.google.firebase:firebase-analytics")
     "gmsImplementation"("com.google.firebase:firebase-crashlytics")
 
@@ -398,6 +401,13 @@ dependencies {
     implementation(libs.work.runtime.ktx)
     implementation(libs.androidx.core.splashscreen)
     implementation(libs.ffmpeg.kit.audio)
+<<<<<<< HEAD
     implementation(libs.java.websocket)
 
+=======
+
+  testImplementation(libs.junit)
+  testImplementation(libs.kotlinx.coroutines.test)
+  testImplementation(libs.robolectric)
+>>>>>>> v1.4.2
 }

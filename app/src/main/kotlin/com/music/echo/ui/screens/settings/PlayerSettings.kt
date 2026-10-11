@@ -36,6 +36,7 @@ import echo.music.iad1tya.BuildConfig
 import echo.music.iad1tya.LocalPlayerAwareWindowInsets
 import echo.music.iad1tya.R
 import echo.music.iad1tya.constants.AudioNormalizationKey
+import echo.music.iad1tya.constants.VarispeedKey
 import echo.music.iad1tya.constants.AudioOffload
 import echo.music.iad1tya.constants.AudioQuality
 import echo.music.iad1tya.constants.AudioQualityKey
@@ -50,9 +51,11 @@ import echo.music.iad1tya.constants.AutoSkipNextOnErrorKey
 import echo.music.iad1tya.constants.DisableLoadMoreWhenRepeatAllKey
 import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
 import echo.music.iad1tya.constants.DownloadWithMetadataKey
+import echo.music.iad1tya.constants.EnableBitPerfectUsbDacKey
 import echo.music.iad1tya.constants.EnableExportAsMp3Key
 import echo.music.iad1tya.constants.JioSaavnOnWifiOnlyKey
 import echo.music.iad1tya.constants.EnableGoogleCastKey
+import echo.music.iad1tya.constants.UsbDacVolumeModeKey
 import echo.music.iad1tya.constants.HistoryDuration
 import echo.music.iad1tya.constants.KeepScreenOn
 import echo.music.iad1tya.constants.PauseOnMute
@@ -101,6 +104,7 @@ highlightKey: String? = null) {
         defaultValue = AudioQuality.OPUS
     )
 
+<<<<<<< HEAD
     val (crossfadeEnabled, onCrossfadeEnabledChange) = rememberPreference(
         CrossfadeEnabledKey,
         defaultValue = false
@@ -138,6 +142,28 @@ highlightKey: String? = null) {
         defaultValue = true
     )
     val (audioLoudnessPreset, onAudioLoudnessPresetChange) = rememberEnumPreference(
+=======
+  val (crossfadeEnabled, onCrossfadeEnabledChange) =
+    rememberPreference(CrossfadeEnabledKey, defaultValue = false)
+  val (crossfadeDuration, onCrossfadeDurationChange) =
+    rememberPreference(CrossfadeDurationKey, defaultValue = 5f)
+  val (automixCrossfade, onAutomixCrossfadeChange) =
+    rememberPreference(AutomixCrossfadeKey, defaultValue = false)
+  val (automixDebugOverlay, onAutomixDebugOverlayChange) =
+    rememberPreference(AutomixDebugOverlayKey, defaultValue = false)
+  val (crossfadeGapless, onCrossfadeGaplessChange) =
+    rememberPreference(CrossfadeGaplessKey, defaultValue = true)
+  val (persistentQueue, onPersistentQueueChange) =
+    rememberPreference(PersistentQueueKey, defaultValue = true)
+  val (skipSilence, onSkipSilenceChange) = rememberPreference(SkipSilenceKey, defaultValue = false)
+  val (skipSilenceInstant, onSkipSilenceInstantChange) =
+    rememberPreference(SkipSilenceInstantKey, defaultValue = false)
+  val (varispeed, onVarispeedChange) = rememberPreference(VarispeedKey, defaultValue = false)
+  val (audioNormalization, onAudioNormalizationChange) =
+    rememberPreference(AudioNormalizationKey, defaultValue = true)
+  val (audioLoudnessPreset, onAudioLoudnessPresetChange) =
+    rememberEnumPreference(
+>>>>>>> v1.4.2
         echo.music.iad1tya.constants.AudioLoudnessPresetKey,
         defaultValue = echo.music.iad1tya.constants.AudioLoudnessPreset.NORMAL
     )
@@ -153,6 +179,17 @@ highlightKey: String? = null) {
         defaultValue = false
     )
 
+<<<<<<< HEAD
+=======
+  val (enableBitPerfectUsbDac, onEnableBitPerfectUsbDacChange) =
+    rememberPreference(key = EnableBitPerfectUsbDacKey, defaultValue = false)
+
+  val (usbDacVolumeMode, onUsbDacVolumeModeChange) =
+    rememberPreference(key = UsbDacVolumeModeKey, defaultValue = "PURE_BIT_PERFECT")
+
+  val (preloadNextSongEnabled, onPreloadNextSongEnabledChange) =
+    rememberPreference(key = PreloadNextSongEnabledKey, defaultValue = true)
+>>>>>>> v1.4.2
 
     val (preloadNextSongEnabled, onPreloadNextSongEnabledChange) = rememberPreference(
         key = PreloadNextSongEnabledKey,
@@ -724,7 +761,38 @@ highlightKey: String? = null) {
                     ))
                 }
                 
+<<<<<<< HEAD
                 add(Material3SettingsItem(
+=======
+          add(
+            Material3SettingsItem(
+              isHighlighted = (highlightKey == "Bit-Perfect USB-DAC"),
+              icon = painterResource(R.drawable.volume_up),
+              title = { Text("Bit-Perfect USB-DAC Output") },
+              description = { Text("Direct UAC1/UAC2 driver bypassing Android OS mixer") },
+              trailingContent = {
+                Switch(
+                  checked = enableBitPerfectUsbDac,
+                  onCheckedChange = onEnableBitPerfectUsbDacChange,
+                  thumbContent = {
+                    Icon(
+                      painter =
+                        painterResource(
+                          id = if (enableBitPerfectUsbDac) R.drawable.check else R.drawable.close
+                        ),
+                      contentDescription = null,
+                      modifier = Modifier.size(SwitchDefaults.IconSize)
+                    )
+                  }
+                )
+              },
+              onClick = { onEnableBitPerfectUsbDacChange(!enableBitPerfectUsbDac) }
+            )
+          )
+
+          add(
+            Material3SettingsItem(
+>>>>>>> v1.4.2
     isHighlighted = (highlightKey == stringResource(R.string.history_duration)),
                     icon = painterResource(R.drawable.history),
                     title = { Text(stringResource(R.string.history_duration)) },
@@ -806,8 +874,37 @@ highlightKey: String? = null) {
                         )
                     },
                     onClick = { onAudioNormalizationChange(!audioNormalization) }
+<<<<<<< HEAD
                 ))
                 add(Material3SettingsItem(
+=======
+            )
+          )
+          add(
+            Material3SettingsItem(
+              isHighlighted = (highlightKey == stringResource(R.string.varispeed)),
+              icon = painterResource(R.drawable.speed),
+              title = { Text(stringResource(R.string.varispeed)) },
+              description = { Text(stringResource(R.string.varispeed_description)) },
+              trailingContent = {
+                Switch(
+                  checked = varispeed,
+                  onCheckedChange = onVarispeedChange,
+                  thumbContent = {
+                    Icon(
+                      painter = painterResource(id = if (varispeed) R.drawable.check else R.drawable.close),
+                      contentDescription = null,
+                      modifier = Modifier.size(SwitchDefaults.IconSize)
+                    )
+                  }
+                )
+              },
+              onClick = { onVarispeedChange(!varispeed) }
+            )
+          )
+          add(
+            Material3SettingsItem(
+>>>>>>> v1.4.2
     isHighlighted = (highlightKey == stringResource(R.string.audio_loudness_preset)),
                     icon = painterResource(R.drawable.volume_up),
                     title = { Text(stringResource(R.string.audio_loudness_preset)) },
