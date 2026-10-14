@@ -65,11 +65,17 @@ import echo.music.iad1tya.constants.DefaultOpenTabKey
 import echo.music.iad1tya.constants.DensityScale
 import echo.music.iad1tya.constants.DensityScaleKey
 import echo.music.iad1tya.constants.DynamicThemeKey
+import echo.music.iad1tya.constants.EnableClickHapticsKey
 import echo.music.iad1tya.constants.EnableHapticsKey
 import echo.music.iad1tya.constants.EnableHighRefreshRateKey
+import echo.music.iad1tya.constants.EnableLongPressHapticsKey
 import echo.music.iad1tya.constants.EnableLyricsThumbnailPlayPauseKey
+import echo.music.iad1tya.constants.EnableScrollEdgeHapticsKey
+import echo.music.iad1tya.constants.EnableSliderHapticsKey
 import echo.music.iad1tya.constants.GridItemSize
 import echo.music.iad1tya.constants.GridItemsSizeKey
+import echo.music.iad1tya.constants.HapticIntensity
+import echo.music.iad1tya.constants.HapticIntensityKey
 import echo.music.iad1tya.constants.HidePlayerThumbnailKey
 import echo.music.iad1tya.constants.HideStatusBarOnFullscreenKey
 import echo.music.iad1tya.constants.LibraryFilter
@@ -154,8 +160,6 @@ fun AppearanceSettings(
   var showAppIconDialog by rememberSaveable { mutableStateOf(false) }
   val (enableHighRefreshRate, onEnableHighRefreshRateChange) =
     rememberPreference(echo.music.iad1tya.constants.EnableHighRefreshRateKey, defaultValue = true)
-  val (enableHaptics, onEnableHapticsChange) =
-    rememberPreference(echo.music.iad1tya.constants.EnableHapticsKey, defaultValue = false)
   val (liveBlurDensity, onLiveBlurDensityChange) =
     rememberPreference(echo.music.iad1tya.constants.LiveBlurDensityKey, defaultValue = 50f)
   val (selectedThemeColorInt) =
@@ -595,6 +599,7 @@ fun AppearanceSettings(
       }
     )
   }
+
 
   var showGridSizeDialog by rememberSaveable { mutableStateOf(false) }
 
@@ -1678,7 +1683,7 @@ fun AppearanceSettings(
       scrollState = scrollState,
       title = stringResource(R.string.misc),
       items =
-        listOf(
+        listOfNotNull(
           Material3SettingsItem(
             isHighlighted = (highlightKey == stringResource(R.string.default_open_tab)),
             icon = painterResource(R.drawable.nav_bar),
@@ -1734,28 +1739,16 @@ fun AppearanceSettings(
             onClick = { onSwipeToSongChange(!swipeToSong) }
           ),
           Material3SettingsItem(
-            isHighlighted = (highlightKey == stringResource(R.string.enable_haptics)),
+            isHighlighted = (highlightKey == stringResource(R.string.haptics)),
             icon = painterResource(R.drawable.vibration),
-            title = { Text(stringResource(R.string.enable_haptics)) },
-            description = { Text(stringResource(R.string.enable_haptics_desc)) },
-            trailingContent = {
-              Switch(
-                checked = enableHaptics,
-                onCheckedChange = onEnableHapticsChange,
-                thumbContent = {
-                  Icon(
-                    painter =
-                      painterResource(
-                        id = if (enableHaptics) R.drawable.check else R.drawable.close
-                      ),
-                    contentDescription = null,
-                    modifier = Modifier.size(SwitchDefaults.IconSize)
-                  )
-                }
-              )
-            },
-            onClick = { onEnableHapticsChange(!enableHaptics) }
+            title = { Text(stringResource(R.string.haptics)) },
+            description = { Text(stringResource(R.string.haptics_desc)) },
+            onClick = { navController.navigate("settings/appearance/haptics") }
           ),
+
+
+
+
           Material3SettingsItem(
             isHighlighted = (highlightKey == stringResource(R.string.swipe_song_to_remove)),
             icon = painterResource(R.drawable.swipe),
