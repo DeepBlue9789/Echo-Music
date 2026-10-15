@@ -161,10 +161,6 @@ val (enableBitPerfectUsbDac, onEnableBitPerfectUsbDacChange) =
 
   val (usbDacVolumeMode, onUsbDacVolumeModeChange) =
     rememberPreference(key = UsbDacVolumeModeKey, defaultValue = "PURE_BIT_PERFECT")
-
-  val (preloadNextSongEnabled, onPreloadNextSongEnabledChange) =
-    rememberPreference(key = PreloadNextSongEnabledKey, defaultValue = true)
-
     val (preloadNextSongEnabled, onPreloadNextSongEnabledChange) = rememberPreference(
         key = PreloadNextSongEnabledKey,
         defaultValue = true

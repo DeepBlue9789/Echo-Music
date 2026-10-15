@@ -134,9 +134,6 @@ import echo.music.iad1tya.constants.SpatialAudioKey
 import echo.music.iad1tya.constants.IpVersionKey
 import com.music.innertube.models.IpVersion
 import okhttp3.Dns
-import java.net.InetAddress
-import java.net.Inet4Address
-import java.net.Inet6Address
 import echo.music.iad1tya.db.MusicDatabase
 import echo.music.iad1tya.db.entities.Event
 import echo.music.iad1tya.db.entities.FormatEntity
@@ -151,11 +148,6 @@ import echo.music.dsp.audio.StereoWidenerAudioProcessor
 import echo.music.dsp.controller.DspController
 import echo.music.dsp.data.EQProfileRepository
 import echo.music.iad1tya.echomusic.updater.downloadmanager.EchoNotificationProvider
-import echo.music.iad1tya.eq.EqualizerService
-import echo.music.iad1tya.eq.audio.AutomixDuckAudioProcessor
-import echo.music.iad1tya.eq.audio.CustomEqualizerAudioProcessor
-import echo.music.iad1tya.eq.audio.StereoWidenerAudioProcessor
-import echo.music.iad1tya.eq.data.EQProfileRepository
 import echo.music.iad1tya.playback.AudioSinkSelector
 import echo.music.usbaudio.UsbAudioDriver
 import echo.music.usbaudio.UsbDacAudioSink
@@ -170,7 +162,6 @@ import echo.music.iad1tya.extensions.metadata
 import echo.music.iad1tya.extensions.setOffloadEnabled
 import echo.music.iad1tya.extensions.toEnum
 import echo.music.iad1tya.extensions.toMediaItem
-import echo.music.iad1tya.echomusic.updater.downloadmanager.EchoNotificationProvider
 import echo.music.iad1tya.generate.SongPlayStatsRepository
 import echo.music.iad1tya.playback.toPersistQueue
 import echo.music.iad1tya.playback.toQueue
@@ -238,12 +229,6 @@ import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import org.chromium.net.CronetEngine
 import timber.log.Timber
-import java.io.ObjectInputStream
-import java.io.ObjectOutputStream
-import java.time.LocalDateTime
-import javax.inject.Inject
-import kotlin.coroutines.coroutineContext
-import kotlin.time.Duration.Companion.seconds
 
 private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L
 private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
@@ -268,7 +253,7 @@ class MusicService :
     lateinit var mediaLibrarySessionCallback: MediaLibrarySessionCallback
 
     @Inject
-    lateinit var equalizerService: EqualizerService
+    lateinit var dspController: DspController
 
     @Inject
     lateinit var eqProfileRepository: EQProfileRepository
@@ -2645,7 +2630,23 @@ if (player.playWhenReady) {
 
         
         if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
-            scrobbleManager?.onPlayerStateChanged(player.isPlaying, player.currentMetadata, duration = player.duration)
+            val canonicalDur = (player.currentMetadata?.duration ?: 0) * 1000L
+            val safeDur = if (canonicalDur > 0L) canonicalDur else player.duration
+            if (player.isPlaying) {
+                if (trackedPlayStartTs == 0L) {
+                    trackedPlayStartTs = System.currentTimeMillis()
+                }
+            } else {
+                if (trackedPlayStartTs > 0L) {
+                    trackedAccumulatedPlayMs += (System.currentTimeMillis() - trackedPlayStartTs)
+                    trackedPlayStartTs = 0L
+                }
+            }
+            scrobbleManager?.onPlayerStateChanged(
+                player.isPlaying,
+                player.currentMetadata,
+                duration = safeDur
+            )
             
             if (player.isPlaying) {
                 player.currentMediaItem?.mediaId?.let { mediaId ->
@@ -2653,7 +2654,7 @@ if (player.playWhenReady) {
                         checkAndSubmitListenBrainzFinished()
                         listenBrainzCurrentMediaId = mediaId
                         listenBrainzCurrentStartTs = System.currentTimeMillis()
-            scrobbleManager?.onSongStart(player.currentMetadata, duration = safeDur)
+                        scrobbleManager?.onSongStart(player.currentMetadata, duration = safeDur)
                     }
                     checkAndSubmitListenBrainzPlayingNow(mediaId)
                 }
@@ -4801,8 +4802,8 @@ if (player.playWhenReady) {
             val gains = echo.music.iad1tya.playback.crossfade.EqualPowerCurve.calculateGains(progress)
 
                     try {
-                        player.volume = startVolume * fadeIn
-                        fadingPlayer?.volume = startVolume * fadeOut
+                        player.volume = startVolume * gains.incomingGain
+                        fadingPlayer?.volume = startVolume * gains.outgoingGain
                     } catch (e: Exception) { break }
 
                     if (djPlan != null) {
