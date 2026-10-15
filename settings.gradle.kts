@@ -35,7 +35,12 @@ include(
     ":core",
     ":lyrics",
     ":playback",
-    ":jiosaavn"
+    ":jiosaavn",
+    ":usbaudio",
+    ":metadata",
+    ":dsp-core",
+    ":audio-dsp",
+    ":domain"
 )
 
 

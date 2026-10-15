@@ -36,6 +36,7 @@ import echo.music.iad1tya.BuildConfig
 import echo.music.iad1tya.LocalPlayerAwareWindowInsets
 import echo.music.iad1tya.R
 import echo.music.iad1tya.constants.AudioNormalizationKey
+import echo.music.iad1tya.constants.VarispeedKey
 import echo.music.iad1tya.constants.AudioOffload
 import echo.music.iad1tya.constants.AudioQuality
 import echo.music.iad1tya.constants.AudioQualityKey
@@ -50,9 +51,11 @@ import echo.music.iad1tya.constants.AutoSkipNextOnErrorKey
 import echo.music.iad1tya.constants.DisableLoadMoreWhenRepeatAllKey
 import echo.music.iad1tya.constants.DownloadOnWifiOnlyKey
 import echo.music.iad1tya.constants.DownloadWithMetadataKey
+import echo.music.iad1tya.constants.EnableBitPerfectUsbDacKey
 import echo.music.iad1tya.constants.EnableExportAsMp3Key
 import echo.music.iad1tya.constants.JioSaavnOnWifiOnlyKey
 import echo.music.iad1tya.constants.EnableGoogleCastKey
+import echo.music.iad1tya.constants.UsbDacVolumeModeKey
 import echo.music.iad1tya.constants.HistoryDuration
 import echo.music.iad1tya.constants.KeepScreenOn
 import echo.music.iad1tya.constants.PauseOnMute
@@ -153,6 +156,14 @@ highlightKey: String? = null) {
         defaultValue = false
     )
 
+val (enableBitPerfectUsbDac, onEnableBitPerfectUsbDacChange) =
+    rememberPreference(key = EnableBitPerfectUsbDacKey, defaultValue = false)
+
+  val (usbDacVolumeMode, onUsbDacVolumeModeChange) =
+    rememberPreference(key = UsbDacVolumeModeKey, defaultValue = "PURE_BIT_PERFECT")
+
+  val (preloadNextSongEnabled, onPreloadNextSongEnabledChange) =
+    rememberPreference(key = PreloadNextSongEnabledKey, defaultValue = true)
 
     val (preloadNextSongEnabled, onPreloadNextSongEnabledChange) = rememberPreference(
         key = PreloadNextSongEnabledKey,

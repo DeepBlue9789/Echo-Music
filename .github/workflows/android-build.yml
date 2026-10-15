@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build Signed APK
@@ -13,7 +16,7 @@ jobs:
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         submodules: recursive
 
@@ -23,6 +26,16 @@ jobs:
         java-version: '21'
         distribution: 'temurin'
         cache: gradle
+
+    - name: Setup Android NDK
+      run: |
+        yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+        $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --install "ndk;28.2.13676358" || true
+
+    - name: Run Unit Tests
+      run: |
+        chmod +x gradlew
+        ./gradlew :core:testDebugUnitTest :lyrics:testDebugUnitTest :app:testUniversalGmsDebugUnitTest
 
     - name: Decode Keystore
       env:
@@ -44,7 +57,7 @@ jobs:
           -Pandroid.injected.signing.key.password=$SIGNING_KEY_PASSWORD
 
     - name: Upload Universal APK
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: Echo-Music-Universal-APK
         path: app/build/outputs/apk/**/*.apk

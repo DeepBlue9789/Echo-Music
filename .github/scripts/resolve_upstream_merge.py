@@ -228,20 +228,22 @@ def resolve_settings_gradle(filepath):
         head_lines = [l.rstrip() for l in head_part.splitlines() if l.strip()]
         upstream_lines = [l.rstrip() for l in upstream_part.splitlines() if l.strip()]
 
-        # Check if all lines are include() statements
+        # Check if lines are module entries inside include(...) e.g. ":modulename"
         all_lines = head_lines + upstream_lines
-        if all(re.match(r'\s*include\s*\(', l.strip()) for l in all_lines if l.strip()):
-            # Union and sort
+        is_module_list = len(all_lines) > 0 and all(re.search(r'"(:[^"]+)"', l) for l in all_lines)
+        if is_module_list:
             seen = set()
             combined = []
             for l in head_lines + upstream_lines:
-                normalized = l.strip()
-                if normalized not in seen:
-                    seen.add(normalized)
-                    combined.append(l)
+                match = re.search(r'"(:[^"]+)"', l)
+                if match:
+                    mod = match.group(1)
+                    if mod not in seen:
+                        seen.add(mod)
+                        combined.append(f'    "{mod}",')
             return "\n".join(combined)
 
-        # For non-include conflicts, union lines
+        # For non-module conflicts, union lines
         seen = set()
         combined = []
         for l in head_lines + upstream_lines:
@@ -495,7 +497,13 @@ def handle_modify_delete_conflicts():
                 run_git(["add", filepath], check=False)
             else:
                 print(f"  [modify/delete] Accepting upstream deletion: {filepath}")
-                run_git(["rm", "--cached", filepath], check=False)
+                run_git(["rm", "-f", filepath], check=False)
+                disk_path = os.path.join(REPO_ROOT, filepath)
+                if os.path.exists(disk_path):
+                    try:
+                        os.remove(disk_path)
+                    except OSError:
+                        pass
             resolved.append(filepath)
 
         # DU = we deleted, upstream modified
@@ -503,7 +511,7 @@ def handle_modify_delete_conflicts():
             filepath = stripped[3:].strip()
             if is_fork_protected(filepath):
                 print(f"  [modify/delete] Fork deleted but protected, keeping deletion: {filepath}")
-                run_git(["rm", "--cached", filepath], check=False)
+                run_git(["rm", "-f", filepath], check=False)
             else:
                 print(f"  [modify/delete] Accepting upstream modification: {filepath}")
                 run_git(["checkout", "--theirs", "--", filepath], check=False)

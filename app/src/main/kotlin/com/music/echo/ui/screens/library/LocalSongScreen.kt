@@ -119,6 +119,7 @@ import echo.music.iad1tya.ui.component.SongListItem
 import echo.music.iad1tya.ui.component.SortHeader
 import echo.music.iad1tya.ui.menu.SelectionSongMenu
 import echo.music.iad1tya.ui.menu.SongMenu
+import echo.music.iad1tya.utils.launchSafely
 import echo.music.iad1tya.utils.rememberPreference
 import echo.music.iad1tya.viewmodels.LocalSongsScanState
 import echo.music.iad1tya.viewmodels.LocalSongsViewModel
@@ -322,10 +323,10 @@ fun LocalSongScreen(
       onFilterModeChange = { onFilterModeNameChange(it.name) },
       excludedFolders = excludedFolders,
       onExcludedFoldersChange = onExcludedFoldersChange,
-      onAddExcludedFolder = { excludedFolderPickerLauncher.launch(null) },
+      onAddExcludedFolder = { excludedFolderPickerLauncher.launchSafely(null, context) },
       includedFolders = includedFolders,
       onIncludedFoldersChange = onIncludedFoldersChange,
-      onAddIncludedFolder = { includedFolderPickerLauncher.launch(null) },
+      onAddIncludedFolder = { includedFolderPickerLauncher.launchSafely(null, context) },
       sheetState = scanSheetState,
       onDismiss = { showScanSheet = false },
       onPrimaryAction = {
