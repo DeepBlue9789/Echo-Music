@@ -114,11 +114,12 @@ PATCH_DEFINITIONS = [
 def run_cmd(cmd, check=True, cwd=None):
     res = subprocess.run(
         cmd, cwd=cwd or REPO_ROOT,
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, encoding="utf-8", errors="replace"
     )
     if check and res.returncode != 0:
         raise RuntimeError(f"Command failed: {' '.join(cmd)}\n{res.stderr.strip()}")
-    return res.stdout
+    return res.stdout or ""
 
 
 def find_merge_base(tag):
@@ -149,7 +150,7 @@ def get_fork_diff_for_paths(base_ref, paths):
             cmd.append(p)
 
     diff = run_cmd(cmd, check=False)
-    return diff.strip()
+    return diff.strip() if diff else ""
 
 
 def get_new_files_for_paths(base_ref, paths):
