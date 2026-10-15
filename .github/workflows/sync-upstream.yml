@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  pull-requests: write
 
 jobs:
   sync-official-release:
@@ -20,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
 
     outputs:
       new_release_needed: ${{ steps.check_upstream.outputs.new_release_needed }}
@@ -86,50 +88,124 @@ jobs:
         if: steps.check_upstream.outputs.new_release_needed == 'true'
         env:
           UPSTREAM_TAG: ${{ steps.check_upstream.outputs.target_tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "============================================================"
           echo "Merging official release tag $UPSTREAM_TAG into fork main..."
+          echo "============================================================"
           
           # Ensure we are on main
           git checkout main
           
           # Fetch the specific upstream release tag cleanly without clobbering other tags
           git fetch upstream tag "$UPSTREAM_TAG" --no-tags
-
-          # Attempt merge of the official release tag with whitespace tolerance
-          if ! git merge -Xignore-space-change "$UPSTREAM_TAG" --no-ff -m "Merge official upstream release $UPSTREAM_TAG into fork"; then
-            echo "Merge conflicts detected. Invoking automated conflict resolver..."
-            if ! python3 .github/scripts/resolve_upstream_merge.py; then
-              echo "::warning::Automated conflict resolution could not resolve all files. Opening a Sync Pull Request..."
+          
+          # ─────────────────────────────────────────────────────────────
+          # Phase 1: Attempt clean merge with whitespace tolerance
+          # ─────────────────────────────────────────────────────────────
+          echo ""
+          echo "--- Phase 1: Attempting merge with whitespace tolerance ---"
+          MERGE_RESULT=0
+          git merge -Xignore-space-change "$UPSTREAM_TAG" --no-ff -m "Merge official upstream release $UPSTREAM_TAG into fork" || MERGE_RESULT=$?
+          
+          if [ "$MERGE_RESULT" -ne 0 ]; then
+            echo ""
+            echo "--- Phase 2: Merge conflicts detected. Running universal conflict resolver ---"
+            
+            # Show conflicted files for logging
+            echo "Conflicted files:"
+            git diff --name-only --diff-filter=U || true
+            echo "Modify/delete status:"
+            git status --porcelain | grep -E '^(UD|DU|AA) ' || true
+            
+            # Run the enhanced conflict resolver
+            RESOLVER_RESULT=0
+            python3 .github/scripts/resolve_upstream_merge.py || RESOLVER_RESULT=$?
+            
+            if [ "$RESOLVER_RESULT" -ne 0 ]; then
+              echo ""
+              echo "--- Phase 3: Resolver could not fully resolve. Creating sync PR ---"
+              
               SYNC_BRANCH="sync/upstream-${UPSTREAM_TAG}"
-              git checkout -b "$SYNC_BRANCH" || git checkout "$SYNC_BRANCH"
+              
+              # Protect fork workflows before committing
               git rm -rf --cached .github/workflows/ 2>/dev/null || true
               git checkout HEAD -- .github/workflows/ 2>/dev/null || true
               git clean -fd .github/workflows/ 2>/dev/null || true
+              
               git add -A
               git commit -m "WIP: Merge upstream release $UPSTREAM_TAG with unresolved conflicts" || true
+              
+              # Push to sync branch
+              git checkout -b "$SYNC_BRANCH" 2>/dev/null || git branch -f "$SYNC_BRANCH" HEAD
               git push origin "$SYNC_BRANCH" --force
-              gh pr create --repo DeepBlue9789/Echo-Music --title "Sync upstream release $UPSTREAM_TAG" \
-                --body "Official release $UPSTREAM_TAG contains new upstream changes that conflict with fork modifications. Please resolve and merge." \
+              
+              # Create PR with detailed information
+              REMAINING_CONFLICTS=$(git diff --name-only --diff-filter=U 2>/dev/null || echo "Check branch for details")
+              
+              gh pr create --repo DeepBlue9789/Echo-Music \
+                --title "🔄 Sync upstream release $UPSTREAM_TAG" \
+                --body "## Upstream Release $UPSTREAM_TAG Sync
+
+The automated conflict resolver handled most conflicts but some files need manual review.
+
+### What the resolver did:
+- ✅ Unified import statements
+- ✅ Resolved whitespace-only conflicts
+- ✅ Preserved fork workflows
+- ✅ Handled modify/delete conflicts
+- ✅ Merged version catalog entries
+- ✅ Updated build.gradle.kts versioning
+
+### Remaining conflicts:
+\`\`\`
+${REMAINING_CONFLICTS}
+\`\`\`
+
+### After manual resolution:
+1. Resolve remaining conflicts in the files above
+2. Merge this PR
+3. Run the **Fork Sub-Version Release** workflow to publish" \
                 --base main --head "$SYNC_BRANCH" || true
-              echo "::error::Opened PR for manual review of $UPSTREAM_TAG. Aborting main sync."
+              
+              echo "::error::Opened PR for manual review of $UPSTREAM_TAG."
               git checkout main
               git merge --abort 2>/dev/null || true
               exit 1
             fi
           fi
-
-          # Retain fork workflow files to prevent GitHub Actions permission rejection
+          
+          # ─────────────────────────────────────────────────────────────
+          # Phase 4: Post-merge — protect fork workflow files
+          # ─────────────────────────────────────────────────────────────
+          echo ""
+          echo "--- Phase 4: Protecting fork workflow files ---"
+          
+          # Ensure .github/workflows/ is byte-for-byte identical to fork HEAD
+          # This prevents GITHUB_TOKEN permission rejections on push
           git rm -rf --cached .github/workflows/ 2>/dev/null || true
           git checkout HEAD -- .github/workflows/ 2>/dev/null || true
           git clean -fd .github/workflows/ 2>/dev/null || true
+          
+          # Stage everything and commit
           git add -A
           if ! git diff-index --quiet HEAD --; then
             git commit --amend --no-edit || git commit -m "Merge official upstream release $UPSTREAM_TAG into fork"
           fi
-
+          
+          # ─────────────────────────────────────────────────────────────
+          # Phase 5: Push and tag
+          # ─────────────────────────────────────────────────────────────
+          echo ""
+          echo "--- Phase 5: Pushing merge and release tag ---"
           git push origin main
           git tag -f "$UPSTREAM_TAG"
           git push origin "$UPSTREAM_TAG" --force
+          
+          echo ""
+          echo "============================================================"
+          echo "Successfully merged and tagged $UPSTREAM_TAG!"
+          echo "============================================================"
 
   release:
     name: Trigger Official Release Build
