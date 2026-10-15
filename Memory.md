@@ -590,4 +590,71 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 ### D. Compilation Verification
 - Ran `./gradlew compileUniversalGmsDebugKotlin` — passed cleanly across all 190 tasks with 0 errors (`BUILD SUCCESSFUL in 1m 54s`).
 
+---
+
+## 19. Upstream Release v1.4.3 Synchronization & Modular Patch Architecture
+
+### A. Deep Diagnosis: Why Every Release Triggers Merge Errors and Automerge Fails
+1. **Upstream Architectural Refactoring**:
+   - In `v1.4.3`, upstream undertook a major refactoring:
+     - Separated the playback and equalizer pipeline into new modules: `:domain`, `:dsp-core`, `:audio-dsp`, `:metadata`, and `:usbaudio`.
+     - Completely deleted `EqualizerService` and replaced it with `DspController`.
+     - Deleted CI workflows (`codeql.yml`, `contributors.yml`), creating Git **modify/delete conflicts** (where the fork modified a file that upstream deleted).
+     - Modified Gradle project files (`settings.gradle.kts` and `libs.versions.toml`) to introduce 5 new subprojects, which collided directly with the fork's `:jiosaavn` module declaration.
+2. **Why Native Git Automerge Always Fails**:
+   - Standard Git 3-way merge operates purely on text lines and context markers.
+   - When upstream refactors large files (`MusicService.kt`, `PlayerSettings.kt`, `AppModule.kt`), Git cannot distinguish whether to keep the fork's custom features (Listen Together P2P, JioSaavn stream resolution) or accept upstream's changes.
+   - Files deleted upstream produce unresolvable modify/delete conflicts that standard Git refuses to merge automatically without human intervention.
+   - Leftover conflict markers or naive unioning break Kotlin syntax (such as missing commas in `settings.gradle.kts` or duplicate import statements).
+
+### B. Comprehensive Solution Implemented
+
+#### 1. Universal Automated Conflict Resolver (`.github/scripts/resolve_upstream_merge.py`)
+- **Phase 0 (Modify/Delete Conflict Resolution)**:
+  - Automatically identifies modify/delete conflicts (`UD` / `DU`).
+  - Fork-protected files (e.g., custom workflows, `:jiosaavn`) are retained (`--ours`).
+  - Deprecated upstream files (e.g. `codeql.yml`) are cleanly purged from the Git index (`git rm -f`) and disk to prevent untracked file clutter.
+- **Phase 1 (Module & Dependency Catalog Union)**:
+  - `settings.gradle.kts`: Robustly parses and unions all module declarations, preserving `:jiosaavn` alongside upstream's new modules (`:usbaudio`, `:dsp-core`, `:audio-dsp`, `:metadata`, `:domain`) with correct indentation and Kotlin trailing commas.
+  - `libs.versions.toml`: Merges dependency catalogs, keeping fork keys and appending upstream additions.
+- **Phase 2 (Dynamic Version Extraction)**:
+  - `app/build.gradle.kts`: Dynamically extracts upstream's new `versionCode` and `versionName` and injects them into the fork's sub-versioning parser block (`-d<N>`).
+- **Phase 3 (Universal Kotlin Import Deduplication & Clean Resolution)**:
+  - Scans and deduplicates all `import` declarations across entire Kotlin files, preventing `Conflicting import: imported name '...' is ambiguous` errors.
+  - Automatically adapts to upstream API transitions (e.g., wiring `DspController` and `EqualPowerCurve` in `MusicService.kt`).
+
+#### 2. Resilient CI/CD Merge Pipeline (`.github/workflows/sync-upstream.yml`)
+- Implements a 5-phase merge pipeline:
+  1. Clean 3-way merge attempt with whitespace tolerance (`git merge -Xignore-space-change`).
+  2. Automated resolution with `.github/scripts/resolve_upstream_merge.py`.
+  3. Pre-push compilation verification (`./gradlew compileUniversalFossReleaseKotlin`).
+  4. Workflow protection (retains fork workflows to comply with GitHub token permissions).
+  5. Fallback Pull Request creation: If conflicts cannot be resolved cleanly, CI automatically creates an informative PR with conflict diagnostics instead of silently aborting.
+
+#### 3. Long-Term Sustainable Architecture: Discrete Patch System (`.github/scripts/generate_patches.py`)
+- For future releases where upstream undergoes radical rewriting, the fork's custom enhancements are encapsulated into 9 discrete, independent patch files:
+  1. `01-fork-workflows.patch`: CI/CD workflows and automated release pipelines.
+  2. `02-fork-build-config.patch`: Sub-versioning `-d<N>`, JVM memory arguments, and compiler flags.
+  3. `03-jiosaavn-module.patch`: Complete isolated `:jiosaavn` 320kbps audio engine.
+  4. `04-jiosaavn-integration.patch`: JioSaavn audio stream resolver and Wi-Fi toggle hooks in `MusicService`.
+  5. `05-listen-together-module.patch`: Listen Together P2P Tailscale networking and chat bubble.
+  6. `06-listen-together-integration.patch`: Listen Together integration points in UI and playback.
+  7. `07-lyrics-romanization.patch`: Lyrics color picker and translation/romanization rendering.
+  8. `08-updater-fork.patch`: In-app updater endpoints targeting fork releases.
+  9. `09-fork-preferences.patch`: Fork-specific preference keys and constants.
+- These patches can be re-applied onto any future upstream tag using `git apply --3way`, completely bypassing historical merge conflict accumulation.
+
+### C. Major Features Synced from Upstream v1.4.3
+- **Bit-Perfect External USB-DAC Audio Engine (`:usbaudio`)**: Hardware UAC1/UAC2 descriptor probing, direct isochronous streaming, SPSC ring buffer, and volume control modes.
+- **Audiophile DSP & Equalizer Modernization (`:dsp-core`, `:audio-dsp`)**: Media3 biquad filtering, AutoEQ parser decoupling, `AdaptivePreArmManager`, and `EqualPowerCurve` crossfader.
+- **Deterministic 5-Stage Metadata Cleaner (`:metadata`)**: Rules engine for cleaning song titles, artist names, and version info.
+- **Clean Architecture Domain Layer (`:domain`)**: Pure Kotlin repository contracts and use-cases (`GetQuickPicksUseCase`, `ResolveLocalMixUseCase`).
+- **Local Taste Engine**: Genre-aware taste signals and play statistics tracking.
+
+### D. Verification & Status
+- Merged upstream tag `v1.4.3` into the fork.
+- Verified `./gradlew :jiosaavn:compileReleaseKotlin` — `BUILD SUCCESSFUL`.
+- Verified `./gradlew :app:compileUniversalFossReleaseKotlin` — `BUILD SUCCESSFUL in 2m 46s`.
+
+
 
