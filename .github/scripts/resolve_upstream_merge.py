@@ -335,6 +335,24 @@ def resolve_universal_imports(content):
     return conflict_pattern.sub(import_replacer, content)
 
 
+def deduplicate_file_imports(content):
+    """
+    Deduplicate all import statements in a Kotlin file.
+    Ensures no duplicate import lines exist anywhere in the file.
+    """
+    lines = content.splitlines()
+    seen_imports = set()
+    cleaned_lines = []
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("import "):
+            if stripped in seen_imports:
+                continue
+            seen_imports.add(stripped)
+        cleaned_lines.append(line)
+    return "\n".join(cleaned_lines)
+
+
 def resolve_whitespace_only_conflicts(content):
     """
     Resolve conflicts where both sides are identical ignoring whitespace.
@@ -398,6 +416,7 @@ def resolve_fork_protected_kt(filepath, rel_path):
     # Clean up empty conflict leftovers
     empty_conflict = re.compile(r'<<<<<<<[^\n]*\n\s*=======\s*>>>>>>>[^\n]*', re.DOTALL)
     content = empty_conflict.sub('', content)
+    content = deduplicate_file_imports(content)
 
     if content != orig:
         with open(filepath, "w", encoding="utf-8") as f:
@@ -434,6 +453,7 @@ def resolve_generic_kt(filepath):
     # Clean up
     empty_conflict = re.compile(r'<<<<<<<[^\n]*\n\s*=======\s*>>>>>>>[^\n]*', re.DOTALL)
     content = empty_conflict.sub('', content)
+    content = deduplicate_file_imports(content)
 
     if content != orig:
         with open(filepath, "w", encoding="utf-8") as f:
