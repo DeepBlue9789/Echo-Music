@@ -158,6 +158,7 @@ import echo.music.iad1tya.constants.ListenTogetherInTopBarKey
 import echo.music.iad1tya.constants.ListenTogetherUsernameKey
 import echo.music.iad1tya.constants.MiniPlayerBottomSpacing
 import echo.music.iad1tya.constants.MiniPlayerHeight
+import echo.music.iad1tya.constants.MusicFlowEnabledKey
 import echo.music.iad1tya.constants.NavigationBarAnimationSpec
 import echo.music.iad1tya.constants.NavigationBarHeight
 import echo.music.iad1tya.constants.PauseListenHistoryKey
@@ -825,6 +826,8 @@ class MainActivity : ComponentActivity() {
           }
         val (useNewMiniPlayerDesign) =
           rememberPreference(UseNewMiniPlayerDesignKey, defaultValue = true)
+        val (musicFlowEnabled) =
+          rememberPreference(MusicFlowEnabledKey, defaultValue = true)
         val defaultOpenTab = remember {
           dataStore[DefaultOpenTabKey].toEnum(defaultValue = NavigationTab.HOME)
         }
@@ -1458,6 +1461,12 @@ class MainActivity : ComponentActivity() {
                       FloatingNavigationToolbar(
                         items = navigationItems,
                         pureBlack = pureBlack,
+                        onMusicFlowClick =
+                          if (musicFlowEnabled) {
+                            { navController.navigate("music_flow") { launchSingleTop = true } }
+                          } else null,
+                        musicFlowIconRes = R.drawable.swipe,
+                        musicFlowContentDescription = stringResource(R.string.music_flow),
                         onShuffleClick = onShuffleClick,
                         shuffleEnabled = shuffleEnabled,
                         shuffleIconRes = R.drawable.shuffle,
@@ -1598,6 +1607,12 @@ class MainActivity : ComponentActivity() {
                   onSearchLongClick = onRailSearchLongClick,
                   onMusicRecognitionClick = onMusicRecognitionClick,
                   musicRecognitionContentDescription = stringResource(R.string.recognition),
+                  onMusicFlowClick =
+                    if (musicFlowEnabled) {
+                      { navController.navigate("music_flow") { launchSingleTop = true } }
+                    } else null,
+                  musicFlowIconRes = R.drawable.swipe,
+                  musicFlowContentDescription = stringResource(R.string.music_flow),
                   onShuffleClick = onShuffleClick,
                   shuffleEnabled = shuffleEnabled,
                   shuffleIconRes = R.drawable.shuffle,
