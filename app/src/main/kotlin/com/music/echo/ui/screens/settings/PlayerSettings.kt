@@ -64,6 +64,7 @@ import echo.music.iad1tya.constants.PersistentShuffleAcrossQueuesKey
 import echo.music.iad1tya.constants.PreventDuplicateTracksInQueueKey
 import echo.music.iad1tya.constants.RememberShuffleAndRepeatKey
 import echo.music.iad1tya.constants.ResumeOnBluetoothConnectKey
+import echo.music.iad1tya.constants.AutoplayOnAutomotiveConnectKey
 import echo.music.iad1tya.constants.SeekExtraSeconds
 import echo.music.iad1tya.constants.ShufflePlaylistFirstKey
 import echo.music.iad1tya.constants.SimilarContent
@@ -71,7 +72,6 @@ import echo.music.iad1tya.constants.SimilarContent
 import echo.music.iad1tya.constants.SkipSilenceInstantKey
 import echo.music.iad1tya.constants.SkipSilenceKey
 import echo.music.iad1tya.constants.StopMusicOnTaskClearKey
-import echo.music.iad1tya.constants.EnableExportAsMp3Key
 
 import echo.music.iad1tya.constants.PreloadNextSongEnabledKey
 import echo.music.iad1tya.constants.PreloadNextSongLimitKey
@@ -267,7 +267,8 @@ val (enableBitPerfectUsbDac, onEnableBitPerfectUsbDacChange) =
         defaultValue = 1f
     )
 
-    var showAudioQualityDialog by remember { mutableStateOf(false) }
+  var showAudioQualityWifiDialog by remember { mutableStateOf(false) }
+  var showAudioQualityCellularDialog by remember { mutableStateOf(false) }
     var showDownloadQualityDialog by remember { mutableStateOf(false) }
     var showPlaybackEngineDialog by remember { mutableStateOf(false) }
 
@@ -281,12 +282,12 @@ val (enableBitPerfectUsbDac, onEnableBitPerfectUsbDacChange) =
         defaultValue = echo.music.iad1tya.constants.DownloadQuality.YOUTUBE
     )
 
-    if (showAudioQualityDialog) {
+  if (showAudioQualityWifiDialog) {
         EnumDialog(
-            onDismiss = { showAudioQualityDialog = false },
+      onDismiss = { showAudioQualityWifiDialog = false },
             onSelect = {
-                onAudioQualityChange(it)
-                showAudioQualityDialog = false
+        onAudioQualityWifiChange(it)
+        showAudioQualityWifiDialog = false
             },
             title = stringResource(R.string.audio_quality),
             current = audioQuality,
@@ -296,6 +297,13 @@ val (enableBitPerfectUsbDac, onEnableBitPerfectUsbDacChange) =
                     AudioQuality.OPUS -> "Opus"
                     AudioQuality.JIO_SAAVN_OPUS -> "Jio Saavan > Opus"
                 }
+
+  if (showAudioQualityCellularDialog) {
+    EnumDialog(
+      onDismiss = { showAudioQualityCellularDialog = false },
+      onSelect = {
+        onAudioQualityCellularChange(it)
+        showAudioQualityCellularDialog = false
             },
             valueDescription = {
                 when (it) {

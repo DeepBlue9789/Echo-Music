@@ -37,6 +37,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.aspectRatio
@@ -207,7 +208,8 @@ import kotlin.time.Duration.Companion.seconds
 fun Lyrics(
     sliderPositionProvider: () -> Long?,
     modifier: Modifier = Modifier,
-    showLyrics: Boolean
+  showLyrics: Boolean,
+  compact: Boolean = false
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val database = LocalDatabase.current
@@ -627,6 +629,19 @@ fun Lyrics(
     
     var isAnimating by remember { mutableStateOf(false) }
     var isAutoScrollEnabled by rememberSaveable { mutableStateOf(true) }
+  var lastManualScrollTime by remember { mutableStateOf(0L) }
+
+  LaunchedEffect(
+    isAutoScrollEnabled, isSynced, isSelectionModeActive, showLyrics,
+    lazyListState.isScrollInProgress, lastManualScrollTime,
+  ) {
+    if (!isAutoScrollEnabled && isSynced && !isSelectionModeActive && showLyrics &&
+      !lazyListState.isScrollInProgress) {
+      delay(4000)
+      lastPreviewTime = 0L
+      isAutoScrollEnabled = true
+    }
+  }
 
     
     BackHandler(enabled = isSelectionModeActive) {
@@ -685,10 +700,11 @@ fun Lyrics(
     LaunchedEffect(lines) {
         isSelectionModeActive = false
         selectedIndices.clear()
+    isAutoScrollEnabled = true
     }
 
-    LaunchedEffect(lyrics) {
-        if (lyrics.isNullOrEmpty() || !lyrics.startsWith("[")) {
+  LaunchedEffect(lyrics, isSynced) {
+    if (!isSynced) {
             currentLineIndex = -1
             return@LaunchedEffect
         }
@@ -886,7 +902,7 @@ fun Lyrics(
                     modifier = Modifier.alpha(0.5f)
                 )
             }
-        } else {
+    } else if (!compact || isSynced) {
             LazyColumn(
             state = lazyListState,
             contentPadding = WindowInsets.systemBars
@@ -904,6 +920,7 @@ fun Lyrics(
                         ): Offset {
                             if (source == NestedScrollSource.UserInput) {
                                 isAutoScrollEnabled = false
+                      lastManualScrollTime = System.currentTimeMillis()
                             }
                             if (!isSelectionModeActive) { 
                                 lastPreviewTime = System.currentTimeMillis()
@@ -916,6 +933,7 @@ fun Lyrics(
                             available: Velocity
                         ): Velocity {
                             isAutoScrollEnabled = false
+                    lastManualScrollTime = System.currentTimeMillis()
                             if (!isSelectionModeActive) { 
                                 lastPreviewTime = System.currentTimeMillis()
                             }

@@ -158,6 +158,7 @@ import echo.music.iad1tya.constants.ListenTogetherInTopBarKey
 import echo.music.iad1tya.constants.ListenTogetherUsernameKey
 import echo.music.iad1tya.constants.MiniPlayerBottomSpacing
 import echo.music.iad1tya.constants.MiniPlayerHeight
+import echo.music.iad1tya.constants.MusicFlowEnabledKey
 import echo.music.iad1tya.constants.NavigationBarAnimationSpec
 import echo.music.iad1tya.constants.NavigationBarHeight
 import echo.music.iad1tya.constants.PauseListenHistoryKey
@@ -826,6 +827,8 @@ class MainActivity : ComponentActivity() {
           }
         val (useNewMiniPlayerDesign) =
           rememberPreference(UseNewMiniPlayerDesignKey, defaultValue = true)
+        val (musicFlowEnabled) =
+          rememberPreference(MusicFlowEnabledKey, defaultValue = true)
         val defaultOpenTab = remember {
           dataStore[DefaultOpenTabKey].toEnum(defaultValue = NavigationTab.HOME)
         }
@@ -879,12 +882,14 @@ class MainActivity : ComponentActivity() {
               currentRoute!!.startsWith("album/") ||
               currentRoute!!.startsWith("online_playlist/") ||
               currentRoute!!.startsWith("local_playlist/") ||
+              currentRoute!!.startsWith("spotify_playlist/") ||
               currentRoute!!.startsWith("artist/")
           }
 
         val isLandscape = configuration.containerDpSize.width > configuration.containerDpSize.height
 
-        val showRail = isLandscape && !inSearchScreen && currentRoute != "ambient_mode"
+        val showRail =
+          isLandscape && !inSearchScreen && currentRoute != "ambient_mode" && currentRoute != "music_flow"
 
         val navPadding =
           if (shouldShowNavigationBar && !showRail) {
@@ -1246,6 +1251,7 @@ class MainActivity : ComponentActivity() {
             }
           }
 
+        val expandPlayer = remember(playerBottomSheetState) { { playerBottomSheetState.expandSoft() } }
         CompositionLocalProvider(
           LocalHapticFeedback provides customHapticFeedback,
           LocalGlassEffectConfig provides glassEffectConfig,
@@ -1260,6 +1266,7 @@ class MainActivity : ComponentActivity() {
           LocalShimmerTheme provides getShimmerTheme(),
           LocalSyncUtils provides syncUtils,
           LocalListenTogetherManager provides listenTogetherManager,
+          LocalExpandPlayer provides expandPlayer,
         ) {
           Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -1380,6 +1387,7 @@ class MainActivity : ComponentActivity() {
                   currentRoute != "update" &&
                   currentRoute != "listen_together/chat" &&
                   currentRoute != "ambient_mode" &&
+                  currentRoute != "music_flow" &&
                   currentRoute != "uptime" &&
                   currentRoute?.startsWith("settings") != true
               ) {
@@ -1454,6 +1462,12 @@ class MainActivity : ComponentActivity() {
                       FloatingNavigationToolbar(
                         items = navigationItems,
                         pureBlack = pureBlack,
+                        onMusicFlowClick =
+                          if (musicFlowEnabled) {
+                            { navController.navigate("music_flow") { launchSingleTop = true } }
+                          } else null,
+                        musicFlowIconRes = R.drawable.swipe,
+                        musicFlowContentDescription = stringResource(R.string.music_flow),
                         onShuffleClick = onShuffleClick,
                         shuffleEnabled = shuffleEnabled,
                         shuffleIconRes = R.drawable.shuffle,
@@ -1492,6 +1506,8 @@ class MainActivity : ComponentActivity() {
                             alpha =
                               if (
                                 progress > 0f ||
+                                  useFloatingNavBar ||
+                                  !shouldShowNavigationBar ||
                                   (useNewMiniPlayerDesign && !shouldShowNavigationBar)
                               )
                                 0f
@@ -1506,6 +1522,7 @@ class MainActivity : ComponentActivity() {
                   currentRoute != "update" &&
                     currentRoute != "listen_together/chat" &&
                     currentRoute != "ambient_mode" &&
+                    currentRoute != "music_flow" &&
                     currentRoute != "uptime" &&
                     currentRoute?.startsWith("settings") != true
                 ) {
@@ -1530,7 +1547,12 @@ class MainActivity : ComponentActivity() {
                       .graphicsLayer {
                         val progress = playerBottomSheetState.progress
                         alpha =
-                          if (progress > 0f || (useNewMiniPlayerDesign && !shouldShowNavigationBar))
+                          if (
+                            progress > 0f ||
+                              useFloatingNavBar ||
+                              !shouldShowNavigationBar ||
+                              (useNewMiniPlayerDesign && !shouldShowNavigationBar)
+                          )
                             0f
                           else 1f
                       }
@@ -1586,6 +1608,12 @@ class MainActivity : ComponentActivity() {
                   onSearchLongClick = onRailSearchLongClick,
                   onMusicRecognitionClick = onMusicRecognitionClick,
                   musicRecognitionContentDescription = stringResource(R.string.recognition),
+                  onMusicFlowClick =
+                    if (musicFlowEnabled) {
+                      { navController.navigate("music_flow") { launchSingleTop = true } }
+                    } else null,
+                  musicFlowIconRes = R.drawable.swipe,
+                  musicFlowContentDescription = stringResource(R.string.music_flow),
                   onShuffleClick = onShuffleClick,
                   shuffleEnabled = shuffleEnabled,
                   shuffleIconRes = R.drawable.shuffle,
@@ -2013,3 +2041,4 @@ val LocalSyncUtils = staticCompositionLocalOf<SyncUtils> { error("No SyncUtils p
 val LocalListenTogetherManager =
   staticCompositionLocalOf<echo.music.iad1tya.listentogether.ListenTogetherManager?> { null }
 val LocalIsPlayerExpanded = compositionLocalOf { false }
+val LocalExpandPlayer = staticCompositionLocalOf<() -> Unit> { {} }

@@ -46,9 +46,11 @@ import echo.music.iad1tya.LocalPlayerAwareWindowInsets
 import echo.music.iad1tya.LocalPlayerConnection
 import echo.music.iad1tya.R
 import echo.music.iad1tya.constants.ExportDirectoryUriKey
+import echo.music.iad1tya.constants.ExportingSongIdsKey
 import echo.music.iad1tya.constants.MaxImageCacheSizeKey
 import echo.music.iad1tya.constants.MaxSongCacheSizeKey
 import echo.music.iad1tya.extensions.tryOrNull
+import echo.music.iad1tya.playback.AudioExportService
 import echo.music.iad1tya.ui.component.ActionPromptDialog
 import echo.music.iad1tya.ui.component.IconButton
 import echo.music.iad1tya.ui.component.Material3SettingsGroup
@@ -93,6 +95,7 @@ fun StorageSettings(
       key = ExportDirectoryUriKey,
       defaultValue = "",
     )
+  val exportingSongIds by rememberPreference(ExportingSongIdsKey, "")
   val exportDirectoryLauncher =
     rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
       if (uri != null) {
@@ -343,6 +346,19 @@ fun StorageSettings(
           )
         )
     )
+
+    if (exportingSongIds.isNotBlank()) {
+      Spacer(modifier = Modifier.height(16.dp))
+      Material3SettingsGroup(
+        scrollState = scrollState,
+        items = listOf(Material3SettingsItem(
+          icon = painterResource(R.drawable.close),
+          title = { Text(stringResource(R.string.cancel_exports)) },
+          description = { Text(stringResource(R.string.exporting)) },
+          onClick = { AudioExportService.cancelAll(context) },
+        )),
+      )
+    }
 
     Spacer(modifier = Modifier.height(16.dp))
 

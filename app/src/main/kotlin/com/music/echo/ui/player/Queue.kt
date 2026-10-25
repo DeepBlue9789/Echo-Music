@@ -946,11 +946,10 @@ fun Queue(
                     }
                 }
 
-                FlowRow(
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                        .fillMaxWidth(),
+Row(
+          modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+          verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ToggleButton(
                         checked = shuffleModeEnabled,

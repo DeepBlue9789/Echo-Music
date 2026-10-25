@@ -2291,6 +2291,12 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
       "ambient_settings"
     ),
     SearchableSetting(
+      stringResource(R.string.show_seek_buttons),
+      stringResource(R.string.show_seek_buttons_desc),
+      "Player and audio",
+      "settings/player"
+    ),
+    SearchableSetting(
       stringResource(R.string.download_on_wifi_only),
       stringResource(R.string.download_on_wifi_only_desc),
       "Player and audio",
@@ -2346,49 +2352,49 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
       "Show Button 1",
       "Show Button 1 in Discord Rich Presence",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Button 1 Label",
       "Label for Button 1",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Button 1 URL Source",
       "URL Source for Button 1",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Button 1 Custom URL",
       "Custom URL for Button 1",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Show Button 2",
       "Show Button 2 in Discord Rich Presence",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Button 2 Label",
       "Label for Button 2",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Button 2 URL Source",
       "URL Source for Button 2",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Button 2 Custom URL",
       "Custom URL for Button 2",
       "Discord RPC",
-      "settings/discord_experimental"
+      "settings/discord/experimental"
     ),
     SearchableSetting(
       "Local Backup",
@@ -2430,7 +2436,7 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
       "Blocked Artists",
       "Manage blocked artists",
       "Content",
-      "settings/blocked_artists"
+      "settings/content"
     ),
     SearchableSetting(
       "Add another account",
@@ -2454,19 +2460,19 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
       stringResource(R.string.haptics),
       stringResource(R.string.haptics_desc),
       "Appearance",
-      "settings/haptics"
+      "settings/appearance/haptics"
     ),
     SearchableSetting(
       stringResource(R.string.liquid_glass_settings),
       stringResource(R.string.liquid_glass_settings_desc),
       "Appearance",
-      "settings/glass_effect"
+      "settings/appearance/liquidglass"
     ),
     SearchableSetting(
       stringResource(R.string.app_font),
       "Choose the application font",
       "Appearance",
-      "settings/font_selection"
+      "settings/appearance/font"
     ),
     SearchableSetting(
       "Data Saver Mode (Beta)",
@@ -2550,19 +2556,19 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
       "Add Custom Server",
       "Add a custom extension server",
       "Extensions",
-      "settings/extension"
+      "settings/extensions"
     ),
     SearchableSetting(
       "Add Extension",
       "Add a new extension",
       "Extensions",
-      "settings/extension"
+      "settings/extensions"
     ),
     SearchableSetting(
       "Extension Sources",
       "Manage extension sources",
       "Extensions",
-      "settings/extension"
+      "settings/extensions"
     ),
     SearchableSetting(
       "Blocked Artists",
@@ -2624,5 +2630,6 @@ fun getAllSearchableSettings(): List<SearchableSetting> {
       "Appearance",
       "settings/appearance"
     ),
-  )
+  ).filterNot { it.route == "settings/ambient" || it.route == "settings/integrations" }
+    .distinctBy { it.title to it.route }
 }
