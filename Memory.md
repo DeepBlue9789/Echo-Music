@@ -656,5 +656,66 @@ To ensure the fork remains perpetually up to date with official Echo Music relea
 - Verified `./gradlew :jiosaavn:compileReleaseKotlin` — `BUILD SUCCESSFUL`.
 - Verified `./gradlew :app:compileUniversalFossReleaseKotlin` — `BUILD SUCCESSFUL in 2m 46s`.
 
+---
+
+## 11. Upstream v1.4.4 Sync, Built-in JioSaavn Extension & Cache-First Playback
+
+### A. Background & Problem Statement
+- **Auto-Sync Failure on v1.4.4**: Upstream released `v1.4.4` featuring extension audio stream resolution (`ExtensionManager`), network-aware quality limits (separate Wi-Fi and Cellular ceilings), Music Flow overhaul, and FLAC support. Previous fork releases hardcoded JioSaavn into `MusicService.kt`, `PlayerSettings.kt`, and `PreferenceKeys.kt` under `FORK_PROTECTED_FILES`. When upstream modified these exact areas, the resolver script retained stale fork code that broke new upstream types and caused compilation failures.
+- **Goals**:
+  1. Synchronize upstream `v1.4.4` cleanly.
+  2. Decouple JioSaavn from `MusicService.kt` and refactor it into an **in-built extension** leveraging upstream's `ExtensionManager`.
+  3. Implement **network-aware quality and cache-first playback**:
+     - High quality (≥ 320kbps JioSaavn/FLAC) in cache → Always play from storage regardless of network type.
+     - Lower quality (Opus) in cache + Mobile Data → Play from storage (save cellular data).
+     - Lower quality in cache + Wi-Fi → Bypass cache and stream JioSaavn 320kbps to upgrade cache quality.
+     - No cache + Wi-Fi → Stream JioSaavn 320kbps and cache when fully streamed.
+     - No cache + Mobile Data → Stream YouTube Opus and cache when fully streamed.
+
+### B. Implementation Details
+
+#### 1. In-Built JioSaavn Extension (`JioSaavnExtension.kt`)
+- Implemented [`app/src/main/kotlin/com/music/echo/extensions/JioSaavnExtension.kt`](file:///d:/Antigravity%20projects/Echo%20Player/app/src/main/kotlin/com/music/echo/extensions/JioSaavnExtension.kt):
+  - Wraps `:jiosaavn` (`JioSaavnAudioResolver`, `JioSaavnClient`, `JioSaavnDecryptor`).
+  - Endpoint metadata: `ID = "builtin_jiosaavn"`, `NAME = "JioSaavn (Built-in)"`, `URL = "builtin://jiosaavn"`.
+  - Exposes `search(query)` returning `SongItem` with prefix `addon_builtin_jiosaavn_{songId}`.
+  - Exposes `resolveStream(title, artist, durationSec)` resolving to 320kbps AAC `AddonStreamResponse`.
+  - Exposes `resolveDirectTrack(trackId)` for direct addon playback.
+
+#### 2. Native Extension Integration (`ExtensionManager.kt` & `ExtensionSettings.kt`)
+- [`app/src/main/kotlin/com/music/echo/extensions/ExtensionManager.kt`](file:///d:/Antigravity%20projects/Echo%20Player/app/src/main/kotlin/com/music/echo/extensions/ExtensionManager.kt):
+  - `getAddons()`: Always injects `JioSaavnExtension` as the first built-in endpoint (enabled by default).
+  - `removeAddon()`: Guards built-in endpoint so it cannot be removed.
+  - `search()`: Queries JioSaavn directly when enabled.
+  - `resolveStream()`: Resolves through JioSaavn first before querying remote third-party addon endpoints.
+  - `getStreamUrl()`: Resolves direct `addon_builtin_jiosaavn_*` track IDs.
+- [`app/src/main/kotlin/com/music/echo/ui/screens/settings/ExtensionSettings.kt`](file:///d:/Antigravity%20projects/Echo%20Player/app/src/main/kotlin/com/music/echo/ui/screens/settings/ExtensionSettings.kt):
+  - Displays `320 kbps High Quality Audio (Indian & International Catalog)` description.
+  - Delete button hidden for built-in extension while preserving enable/disable toggle.
+
+#### 3. Network-Aware Cache-First Playback Engine (`MusicService.kt`)
+- In `createDataSourceFactory()`:
+  - Detects network metered state: `isMetered = connectivityManager.isActiveNetworkMetered`.
+  - Evaluates `canUseAddon`: on mobile data, respects cellular quality ceiling; on Wi-Fi, respects `Prefer Extension Audio`.
+  - Checks cache presence: `playerCache.isCached()` and `downloadCache.isCached()`.
+  - Detects high quality cache: `dbFormat?.bitrate != null && dbFormat.bitrate >= 320000`.
+  - Decision Logic:
+    - High quality cached → `shouldBypassCache = false` (always play cache).
+    - Low quality cached + mobile data → `shouldBypassCache = false` (play cache to save cellular data).
+    - Low quality cached + Wi-Fi → `shouldBypassCache = true` (upgrade to 320kbps JioSaavn stream).
+  - Same network awareness applied to `preloadUpcomingItems()`.
+
+#### 4. Auto-Merge Resilience (`resolve_upstream_merge.py`)
+- Removed `MusicService.kt` and `PlayerSettings.kt` from `FORK_PROTECTED_FILES`.
+- Added `app/src/main/kotlin/com/music/echo/extensions/JioSaavnExtension.kt` to `FORK_ONLY_PATHS`.
+- Standardized `core/.../PreferenceKeys.kt` to upstream's `AudioQuality` enum (`AUTO`, `LOW`, `MEDIUM`, `HIGH`, `LOSSLESS`, `OPUS`), eliminating future merge conflicts.
+
+### C. Verification & Validation
+- Merged upstream tag `v1.4.4` cleanly into `main` (`c5ac7c73`).
+- Verified `:jiosaavn:test` unit tests pass — `BUILD SUCCESSFUL in 17s`.
+- Verified `:app:compileUniversalFossDebugKotlin` passes — `BUILD SUCCESSFUL in 3m 9s`.
+- Verified `:app:assembleUniversalFossDebug` full APK build passes — `BUILD SUCCESSFUL in 4m 22s`.
+
+
 
 
