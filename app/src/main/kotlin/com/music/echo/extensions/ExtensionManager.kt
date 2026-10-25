@@ -112,13 +112,16 @@ class ExtensionManager @Inject constructor(
 
     suspend fun getAddons(): List<AddonEndpoint> {
         val jsonStr = context.dataStore.data.map { it[ADDONS_KEY] }.first() ?: "[]"
-        return try {
+        val saved = try {
             json.decodeFromString<List<AddonEndpoint>>(jsonStr).map {
                 it.copy(url = sanitizeUrl(it.url))
             }
         } catch (e: Exception) {
             emptyList()
         }
+        val builtin = saved.find { it.id == JioSaavnExtension.ID } ?: JioSaavnExtension.createEndpoint(enabled = true)
+        val others = saved.filter { it.id != JioSaavnExtension.ID }
+        return listOf(builtin) + others
     }
 
     suspend fun hasEnabledAddons(): Boolean = getAddons().any { it.enabled }
@@ -163,6 +166,7 @@ class ExtensionManager @Inject constructor(
     }
 
     suspend fun removeAddon(id: String) {
+        if (id == JioSaavnExtension.ID) return
         val current = getAddons().filter { it.id != id }
         context.dataStore.edit {
             it[ADDONS_KEY] = json.encodeToString(current)
@@ -329,7 +333,13 @@ class ExtensionManager @Inject constructor(
         val addons = getAddons().filter { it.enabled }
         val results = mutableListOf<SongItem>()
         
-        for (addon in addons) {
+        // Search built-in JioSaavn extension if enabled
+        if (addons.any { it.id == JioSaavnExtension.ID }) {
+            results.addAll(JioSaavnExtension.search(query))
+        }
+
+        val remoteAddons = addons.filter { it.id != JioSaavnExtension.ID }
+        for (addon in remoteAddons) {
             try {
                 val baseUrl = baseUrlFor(addon)
                 val searchUrl = "${baseUrl.removeSuffix("/")}/search?q=${encodeQuery(query)}"
@@ -358,6 +368,10 @@ class ExtensionManager @Inject constructor(
     }
 
     suspend fun getStreamUrl(fullId: String): String? = withContext(Dispatchers.IO) {
+        if (fullId.startsWith("addon_${JioSaavnExtension.ID}_")) {
+            val trackId = fullId.removePrefix("addon_${JioSaavnExtension.ID}_")
+            return@withContext JioSaavnExtension.resolveDirectTrack(trackId)?.url
+        }
         // fullId format: addon_{addonId}_{trackId}; trackId itself may contain "_".
         val addons = getAddons().filter { it.enabled }
         val (addon, trackId) = findAddonForFullId(fullId, addons) ?: return@withContext null
@@ -400,6 +414,10 @@ class ExtensionManager @Inject constructor(
      */
     suspend fun resolveStream(title: String?, artist: String?, duration: Long?, videoId: String): AddonStreamResponse? = withContext(Dispatchers.IO) {
         if (videoId.startsWith("addon_")) {
+            if (videoId.startsWith("addon_${JioSaavnExtension.ID}_")) {
+                val trackId = videoId.removePrefix("addon_${JioSaavnExtension.ID}_")
+                return@withContext JioSaavnExtension.resolveDirectTrack(trackId)
+            }
             val addons = getAddons().filter { it.enabled }
             val (targetAddon, trackId) = findAddonForFullId(videoId, addons)
                 ?: return@withContext null
@@ -417,6 +435,18 @@ class ExtensionManager @Inject constructor(
         if (title == null || artist == null) return@withContext null
         val addons = getAddons().filter { it.enabled }
         if (addons.isEmpty()) return@withContext null
+
+        // 1. Try built-in JioSaavn extension first if enabled
+        if (addons.any { it.id == JioSaavnExtension.ID }) {
+            val durationSec = duration?.let { (it / 1000).toInt() }
+            val jioStream = JioSaavnExtension.resolveStream(title, artist, durationSec)
+            if (jioStream != null) {
+                return@withContext jioStream
+            }
+        }
+
+        val remoteAddons = addons.filter { it.id != JioSaavnExtension.ID }
+        if (remoteAddons.isEmpty()) return@withContext null
         
         val cleanTitle = cleanTitleForSearch(title)
         val primaryArtist = artist.split(",", "&", "•", ";", "/").firstOrNull()?.trim() ?: artist
@@ -426,7 +456,7 @@ class ExtensionManager @Inject constructor(
             val q2 = "$title $artist".trim()
             if (q2 != q1) add(q2)
         }
-        for (addon in addons) {
+        for (addon in remoteAddons) {
             val baseUrl = baseUrlFor(addon)
             // The BitChord contract also exposes isolated source prefixes (/a, /b, /c).
             // Those can 502 when one upstream is cold or down, while the root

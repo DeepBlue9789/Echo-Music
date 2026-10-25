@@ -132,7 +132,17 @@ fun ExtensionSettingsScreen(
                 items = addons.map { addon ->
                     Material3SettingsItem(
                         title = { Text(addon.name, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
-                        description = { Text(addon.url, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                        description = {
+                            Text(
+                                if (addon.id == com.music.echo.extensions.JioSaavnExtension.ID) {
+                                    com.music.echo.extensions.JioSaavnExtension.DESCRIPTION
+                                } else {
+                                    addon.url
+                                },
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                            )
+                        },
                         customIcon = {
                             coil3.compose.SubcomposeAsyncImage(
                                 model = "${addon.url.removeSuffix("/")}/favicon.ico",
@@ -164,20 +174,22 @@ fun ExtensionSettingsScreen(
                                     onCheckedChange = { viewModel.toggleAddon(addon.id, it) },
                                     modifier = Modifier.scale(0.8f)
                                 )
-                                androidx.compose.material3.IconButton(
-                                    onClick = { viewModel.removeAddon(addon.id) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        painterResource(R.drawable.delete),
-                                        contentDescription = "Remove",
-                                        modifier = Modifier.size(20.dp),
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
+                                if (addon.id != com.music.echo.extensions.JioSaavnExtension.ID) {
+                                    androidx.compose.material3.IconButton(
+                                        onClick = { viewModel.removeAddon(addon.id) },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(
+                                            painterResource(R.drawable.delete),
+                                            contentDescription = "Remove",
+                                            modifier = Modifier.size(20.dp),
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
                                 }
                             }
                         },
-                        onClick = {}
+                        onClick = { viewModel.toggleAddon(addon.id, !addon.enabled) }
                     )
                 }
             )

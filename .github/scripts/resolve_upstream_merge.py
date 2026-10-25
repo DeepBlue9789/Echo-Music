@@ -25,8 +25,6 @@ REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # Files that contain fork-specific modifications and should prefer HEAD (ours) on conflict
 FORK_PROTECTED_FILES = {
-    "app/src/main/kotlin/com/music/echo/playback/MusicService.kt",
-    "app/src/main/kotlin/com/music/echo/ui/screens/settings/PlayerSettings.kt",
     "app/src/main/kotlin/com/music/echo/ui/component/Lyrics.kt",
     "app/src/main/kotlin/com/music/echo/di/AppModule.kt",
     "app/src/main/kotlin/com/music/echo/playback/PlayerConnection.kt",
@@ -41,6 +39,7 @@ FORK_ONLY_PATHS = {
     "app/src/main/kotlin/com/music/echo/listentogether/",
     "app/src/main/kotlin/com/music/echo/p2p/",
     "app/src/main/kotlin/com/music/echo/ui/component/FloatingChatBubble.kt",
+    "app/src/main/kotlin/com/music/echo/extensions/JioSaavnExtension.kt",
     ".github/workflows/sync-upstream.yml",
     ".github/workflows/build-release.yml",
     ".github/workflows/fork-release.yml",

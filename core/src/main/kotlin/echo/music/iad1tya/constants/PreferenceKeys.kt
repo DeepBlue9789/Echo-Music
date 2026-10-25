@@ -1,5 +1,3 @@
-
-
 package echo.music.iad1tya.constants
 
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -10,8 +8,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import java.time.LocalDateTime
 import java.time.ZoneOffset
-
-import com.music.innertube.models.IpVersion
 
 val IsFirstRunKey = booleanPreferencesKey("isFirstRun")
 val DataSaverEnabledKey = booleanPreferencesKey("dataSaverEnabled")
@@ -54,15 +50,15 @@ val DensityScaleKey = floatPreferencesKey("density_scale_factor")
 val CustomDensityScaleKey = floatPreferencesKey("custom_density_scale_value")
 
 enum class DensityScale(val value: Float, val label: String) {
-    NATIVE(1.0f, "Native (100%)"),
-    SLIGHTLY_COMPACT(0.85f, "Slightly Compact (85%)"),
-    COMPACT(0.75f, "Compact (75%)"),
-    VERY_COMPACT(0.65f, "Very Compact (65%)"),
-    ULTRA_COMPACT(0.55f, "Ultra Compact (55%)");
+  NATIVE(1.0f, "Native (100%)"),
+  SLIGHTLY_COMPACT(0.85f, "Slightly Compact (85%)"),
+  COMPACT(0.75f, "Compact (75%)"),
+  VERY_COMPACT(0.65f, "Very Compact (65%)"),
+  ULTRA_COMPACT(0.55f, "Ultra Compact (55%)");
 
-    companion object {
-        fun fromValue(value: Float): DensityScale = entries.find { it.value == value } ?: NATIVE
-    }
+  companion object {
+    fun fromValue(value: Float): DensityScale = entries.find { it.value == value } ?: NATIVE
+  }
 }
 
 val DefaultOpenTabKey = stringPreferencesKey("defaultOpenTab")
@@ -73,7 +69,7 @@ val SquigglySliderKey = booleanPreferencesKey("squigglySlider")
 val WavyPlayPauseKey = booleanPreferencesKey("wavyPlayPause")
 val SwipeToSongKey = booleanPreferencesKey("SwipeToSong")
 val SwipeToRemoveSongKey = booleanPreferencesKey("SwipeToRemoveSong")
-val UseNewPlayerDesignKey= booleanPreferencesKey("useNewPlayerDesign")
+val UseNewPlayerDesignKey = booleanPreferencesKey("useNewPlayerDesign")
 val UseNewMiniPlayerDesignKey = booleanPreferencesKey("useNewMiniPlayerDesign")
 val ShowCodecOnPlayerKey = booleanPreferencesKey("showCodecOnPlayer")
 val HidePlayerSliderKey = booleanPreferencesKey("hidePlayerSlider")
@@ -90,9 +86,9 @@ val KeepScreenOn = booleanPreferencesKey("keepScreenOn")
 val DeveloperModeKey = booleanPreferencesKey("developerMode")
 
 enum class SliderStyle {
-    DEFAULT,
-    WAVY,
-    SLIM
+  DEFAULT,
+  WAVY,
+  SLIM
 }
 
 const val SYSTEM_DEFAULT = "SYSTEM_DEFAULT"
@@ -127,18 +123,32 @@ val SelectedYtmPlaylistsKey = stringPreferencesKey("selectedYtmPlaylists")
 
 val ShowAudioFallbackToastKey = booleanPreferencesKey("show_audio_fallback_toast")
 val AudioQualityKey = stringPreferencesKey("audioQuality")
-val JioSaavnOnWifiOnlyKey = booleanPreferencesKey("jio_saavn_on_wifi_only")
+val AudioQualityWifiKey = stringPreferencesKey("audioQualityWifi")
+val AudioQualityCellularKey = stringPreferencesKey("audioQualityCellular")
 val IpVersionKey = stringPreferencesKey("ipVersion")
 
-enum class AudioQuality {
-    OPUS,
-    JIO_SAAVN_OPUS,
+enum class AudioQuality(
+  val maxKbps: Int,
+  val label: String,
+  val detail: String,
+  val hourly: String,
+) {
+  AUTO(Int.MAX_VALUE, "Auto", "Adaptive based on connection", "Variable"),
+  LOW(64, "Low", "~64 kbps · data saver", "29 MB/hr"),
+  MEDIUM(160, "Medium", "Standard · ~160 kbps Opus", "77 MB/hr"),
+  HIGH(320, "High", "Addon high bitrate, YouTube fallback", "144 MB/hr"),
+  LOSSLESS(Int.MAX_VALUE, "Lossless", "Addons bit-exact FLAC/ALAC, YouTube fallback", "300+ MB/hr"),
+  OPUS(160, "Opus", "Standard ~160 kbps Opus", "77 MB/hr");
+
+  fun permitsLossless(): Boolean = this == LOSSLESS || this == AUTO
+  fun permitsHigh(): Boolean = this == LOSSLESS || this == AUTO || this == HIGH
+  fun permitsAddons(): Boolean = this == LOSSLESS || this == AUTO || this == HIGH
 }
 
 val DownloadQualityKey = stringPreferencesKey("downloadQuality")
 
 enum class DownloadQuality {
-    YOUTUBE,
+  YOUTUBE,
 }
 
 val DownloadOnWifiOnlyKey = booleanPreferencesKey("downloadOnWifiOnly")
@@ -151,16 +161,16 @@ val SpatialAudioKey = booleanPreferencesKey("spatialAudio")
 val AudioLoudnessPresetKey = stringPreferencesKey("audioLoudnessPreset")
 
 enum class AudioLoudnessPreset(val gainOffsetMb: Int) {
-    QUIET(-600),
-    NORMAL(0),
-    LOUD(300),
-    AGGRESSIVE(700),
+  QUIET(-600),
+  NORMAL(0),
+  LOUD(300),
+  AGGRESSIVE(700),
 }
 
 enum class PlaybackEngine {
-    POTOKEN,
-    BRAVEPIPE,
-    AUTO,
+  POTOKEN,
+  BRAVEPIPE,
+  AUTO,
 }
 
 val PlaybackEngineKey = stringPreferencesKey("playbackEngine")
@@ -186,7 +196,6 @@ val CrossfadeGaplessKey = booleanPreferencesKey("crossfadeGapless")
 val AutomixCrossfadeKey = booleanPreferencesKey("automixCrossfade")
 val AutomixDebugOverlayKey = booleanPreferencesKey("automixDebugOverlay")
 
-
 val MaxImageCacheSizeKey = intPreferencesKey("maxImageCacheSize")
 val MaxSongCacheSizeKey = intPreferencesKey("maxSongCacheSize")
 val ExportDirectoryUriKey = stringPreferencesKey("exportDirectoryUri")
@@ -200,11 +209,7 @@ val PauseListenHistoryKey = booleanPreferencesKey("pauseListenHistory")
 val PauseSearchHistoryKey = booleanPreferencesKey("pauseSearchHistory")
 val DisableScreenshotKey = booleanPreferencesKey("disableScreenshot")
 
-
-
-
 val EnableGoogleCastKey = booleanPreferencesKey("enableGoogleCast")
-
 
 val ListenTogetherServerUrlKey = stringPreferencesKey("listenTogetherServerUrl")
 val ListenTogetherUsernameKey = stringPreferencesKey("listenTogetherUsername")
@@ -221,7 +226,7 @@ val ListenTogetherP2PAutoHostKey = booleanPreferencesKey("listenTogetherP2PAutoH
 val ListenTogetherP2PDeviceNameKey = stringPreferencesKey("listenTogetherP2PDeviceName")
 val ListenTogetherAutoDiscoverableKey = booleanPreferencesKey("listenTogetherAutoDiscoverable")
 val ListenTogetherFloatingChatBubbleKey = booleanPreferencesKey("listenTogetherFloatingChatBubble")
-val ListenTogetherSystemOverlayBubbleKey = booleanPreferencesKey("listenTogetherSystemOverlayBubble") // kept for migration, no longer used as toggle
+val ListenTogetherSystemOverlayBubbleKey = booleanPreferencesKey("listenTogetherSystemOverlayBubble")
 val ListenTogetherBubbleSizeKey = stringPreferencesKey("listenTogetherBubbleSize") // "small", "medium", "large"
 val ListenTogetherPauseOnDisconnectKey = booleanPreferencesKey("listenTogetherPauseOnDisconnect")
 val ListenTogetherChatButtonInPlayerKey = booleanPreferencesKey("listenTogetherChatButtonInPlayer")
@@ -229,10 +234,9 @@ val ListenTogetherChatBlurIntensityKey = floatPreferencesKey("listenTogetherChat
 val ListenTogetherChatTintIntensityKey = floatPreferencesKey("listenTogetherChatTintIntensity") // 0.10f to 0.85f, default 0.35f
 val ListenTogetherChatFontSizeKey = stringPreferencesKey("listenTogetherChatFontSize") // "small", "medium", "large"
 val ListenTogetherChatFontWeightKey = stringPreferencesKey("listenTogetherChatFontWeight") // "normal", "medium", "bold"
-val ListenTogetherBubbleHaloKey = booleanPreferencesKey("listenTogetherBubbleHalo") // default true: audio breathing halo & shimmer
-val ListenTogetherChatDragToDismissKey = booleanPreferencesKey("listenTogetherChatDragToDismiss") // default true: swipe down to dismiss chat modal
+val ListenTogetherBubbleHaloKey = booleanPreferencesKey("listenTogetherBubbleHalo")
+val ListenTogetherChatDragToDismissKey = booleanPreferencesKey("listenTogetherChatDragToDismiss")
 
-// Persistent Session Keys
 val ListenTogetherSessionTokenKey = stringPreferencesKey("listenTogetherSessionToken")
 val ListenTogetherRoomCodeKey = stringPreferencesKey("listenTogetherRoomCode")
 val ListenTogetherUserIdKey = stringPreferencesKey("listenTogetherUserId")
@@ -318,8 +322,6 @@ val LastArtistSyncKey = longPreferencesKey("last_artist_sync")
 val LastPlaylistSyncKey = longPreferencesKey("last_playlist_sync")
 val LastFullSyncKey = longPreferencesKey("last_full_sync")
 
-
-
 const val SYNC_COOLDOWN = 30 * 60L
 
 val ArtistViewTypeKey = stringPreferencesKey("artistViewType")
@@ -355,170 +357,146 @@ val MusicFlowHideRecentKey = booleanPreferencesKey("music_flow_hide_recent")
 val PreferExtensionAudioKey = booleanPreferencesKey("prefer_extension_audio")
 
 enum class LibraryViewType {
-    LIST,
-    GRID,
-    ;
+  LIST,
+  GRID,
+  ;
 
-    fun toggle() =
-        when (this) {
-            LIST -> GRID
-            GRID -> LIST
-        }
+  fun toggle() =
+    when (this) {
+      LIST -> GRID
+      GRID -> LIST
+    }
 }
 
 enum class SongFilter {
-    LIBRARY,
-    LIKED,
-    DOWNLOADED,
-    UPLOADED,
-    EXPORTED
+  LIBRARY,
+  LIKED,
+  DOWNLOADED,
+  UPLOADED,
+  EXPORTED
 }
 
 enum class ArtistFilter {
-    LIBRARY,
-    LIKED
+  LIBRARY,
+  LIKED
 }
 
 enum class AlbumFilter {
-    LIBRARY,
-    LIKED,
-    UPLOADED
+  LIBRARY,
+  LIKED,
+  UPLOADED
 }
 
 enum class SongSortType {
-    CREATE_DATE,
-    NAME,
-    ARTIST,
-    PLAY_TIME,
+  CREATE_DATE,
+  NAME,
+  ARTIST,
+  PLAY_TIME,
 }
 
 enum class PlaylistSongSortType {
-    CUSTOM,
-    CREATE_DATE,
-    NAME,
-    ARTIST,
-    PLAY_TIME,
+  CUSTOM,
+  CREATE_DATE,
+  NAME,
+  ARTIST,
+  PLAY_TIME,
 }
 
 enum class AutoPlaylistSongSortType {
-    CREATE_DATE,
-    NAME,
-    ARTIST,
-    PLAY_TIME,
+  CREATE_DATE,
+  NAME,
+  ARTIST,
+  PLAY_TIME,
 }
 
 enum class ArtistSortType {
-    CREATE_DATE,
-    NAME,
-    SONG_COUNT,
-    PLAY_TIME,
+  CREATE_DATE,
+  NAME,
+  SONG_COUNT,
+  PLAY_TIME,
 }
 
 enum class ArtistSongSortType {
-    CREATE_DATE,
-    NAME,
-    PLAY_TIME,
+  CREATE_DATE,
+  NAME,
+  PLAY_TIME,
 }
 
 enum class AlbumSortType {
-    CREATE_DATE,
-    NAME,
-    ARTIST,
-    YEAR,
-    SONG_COUNT,
-    LENGTH,
-    PLAY_TIME,
+  CREATE_DATE,
+  NAME,
+  ARTIST,
+  YEAR,
+  SONG_COUNT,
+  LENGTH,
+  PLAY_TIME,
 }
 
 enum class PlaylistSortType {
-    CREATE_DATE,
-    NAME,
-    SONG_COUNT,
-    LAST_UPDATED,
+  CREATE_DATE,
+  NAME,
+  SONG_COUNT,
+  LAST_UPDATED,
 }
 
 enum class MixSortType {
-    CREATE_DATE,
-    NAME,
-    LAST_UPDATED,
+  CREATE_DATE,
+  NAME,
+  LAST_UPDATED,
 }
 
 enum class GridItemSize {
-    BIG,
-    SMALL,
+  BIG,
+  SMALL,
 }
 
 enum class MyTopFilter {
-    ALL_TIME,
-    DAY,
-    WEEK,
-    MONTH,
-    YEAR,
-    ;
+  ALL_TIME,
+  DAY,
+  WEEK,
+  MONTH,
+  YEAR,
+  ;
 
-    fun toTimeMillis(): Long =
-        when (this) {
-            DAY ->
-                LocalDateTime
-                    .now()
-                    .minusDays(1)
-                    .toInstant(ZoneOffset.UTC)
-                    .toEpochMilli()
-
-            WEEK ->
-                LocalDateTime
-                    .now()
-                    .minusWeeks(1)
-                    .toInstant(ZoneOffset.UTC)
-                    .toEpochMilli()
-
-            MONTH ->
-                LocalDateTime
-                    .now()
-                    .minusMonths(1)
-                    .toInstant(ZoneOffset.UTC)
-                    .toEpochMilli()
-
-            YEAR ->
-                LocalDateTime
-                    .now()
-                    .minusMonths(12)
-                    .toInstant(ZoneOffset.UTC)
-                    .toEpochMilli()
-
-            ALL_TIME -> 0
-        }
+  fun toTimeMillis(): Long =
+    when (this) {
+      DAY -> LocalDateTime.now().minusDays(1).toInstant(ZoneOffset.UTC).toEpochMilli()
+      WEEK -> LocalDateTime.now().minusWeeks(1).toInstant(ZoneOffset.UTC).toEpochMilli()
+      MONTH -> LocalDateTime.now().minusMonths(1).toInstant(ZoneOffset.UTC).toEpochMilli()
+      YEAR -> LocalDateTime.now().minusMonths(12).toInstant(ZoneOffset.UTC).toEpochMilli()
+      ALL_TIME -> 0
+    }
 }
 
 enum class QuickPicks {
-    QUICK_PICKS,
-    LAST_LISTEN,
+  QUICK_PICKS,
+  LAST_LISTEN,
 }
 
 enum class PreferredLyricsProvider {
-    LRCLIB,
-    KUGOU,
-    BETTER_LYRICS,
-    SIMPMUSIC,
-    YOULYPLUS,
-    PAXSENIX,
-    UNISON
+  LRCLIB,
+  KUGOU,
+  BETTER_LYRICS,
+  SIMPMUSIC,
+  YOULYPLUS,
+  PAXSENIX,
+  UNISON
 }
 
 enum class PlayerButtonsStyle {
-    DEFAULT,
-    PRIMARY,
-    TERTIARY
+  DEFAULT,
+  PRIMARY,
+  TERTIARY
 }
 
 enum class PlayerBackgroundStyle {
-    DEFAULT,
-    GRADIENT,
-    BLUR,
-    GLOW_ANIMATED,
-    APPLE_MUSIC,
-    LIVE_MESH,
-    LIQUID_GLASS,
+  DEFAULT,
+  GRADIENT,
+  BLUR,
+  GLOW_ANIMATED,
+  APPLE_MUSIC,
+  LIVE_MESH,
+  LIQUID_GLASS,
 }
 
 val TopSize = stringPreferencesKey("topSize")
@@ -568,17 +546,18 @@ val LyricsStandardBlurKey = booleanPreferencesKey("lyricsStandardBlur")
 val HideStatusBarOnFullscreenKey = booleanPreferencesKey("hideStatusBarOnFullscreen")
 
 val LyricsAnimationStyleKey = stringPreferencesKey("lyricsAnimationStyle")
+
 enum class LyricsAnimationStyle {
-    NONE,
-    FADE,
-    GLOW,
-    SLIDE,
-    KARAOKE,
-    APPLE,
-    APPLE_V2,
-    echomusic_1,
-    LYRICS_V2,
-    METRO_LYRICS,
+  NONE,
+  FADE,
+  GLOW,
+  SLIDE,
+  KARAOKE,
+  APPLE,
+  APPLE_V2,
+  echomusic_1,
+  LYRICS_V2,
+  METRO_LYRICS,
 }
 
 val LyricsTextSizeKey = floatPreferencesKey("lyricsTextSize")
@@ -594,15 +573,15 @@ val CanvasThumbnailAnimationKey = booleanPreferencesKey("canvasThumbnailAnimatio
 val SwipeSensitivityKey = floatPreferencesKey("swipeSensitivity")
 
 enum class SearchSource {
-    LOCAL,
-    ONLINE,
-    ;
+  LOCAL,
+  ONLINE,
+  ;
 
-    fun toggle() =
-        when (this) {
-            LOCAL -> ONLINE
-            ONLINE -> LOCAL
-        }
+  fun toggle() =
+    when (this) {
+      LOCAL -> ONLINE
+      ONLINE -> LOCAL
+    }
 }
 
 val VisitorDataKey = stringPreferencesKey("visitorData")
@@ -615,242 +594,242 @@ val UseLoginForBrowse = booleanPreferencesKey("useLoginForBrowse")
 val LastOpenedVersionCodeKey = intPreferencesKey("lastOpenedVersionCode")
 
 val LanguageCodeToName =
-    mapOf(
-        "af" to "Afrikaans",
-        "az" to "Azərbaycan",
-        "id" to "Bahasa Indonesia",
-        "ms" to "Bahasa Malaysia",
-        "ca" to "Català",
-        "cs" to "Čeština",
-        "da" to "Dansk",
-        "de" to "Deutsch",
-        "et" to "Eesti",
-        "en-GB" to "English (UK)",
-        "en" to "English (US)",
-        "es" to "Español (España)",
-        "es-419" to "Español (Latinoamérica)",
-        "eu" to "Euskara",
-        "fil" to "Filipino",
-        "fr" to "Français",
-        "fr-CA" to "Français (Canada)",
-        "gl" to "Galego",
-        "hr" to "Hrvatski",
-        "zu" to "IsiZulu",
-        "is" to "Íslenska",
-        "it" to "Italiano",
-        "sw" to "Kiswahili",
-        "lt" to "Lietuvių",
-        "hu" to "Magyar",
-        "nl" to "Nederlands",
-        "no" to "Norsk",
-        "or" to "Odia",
-        "uz" to "O‘zbe",
-        "pl" to "Polski",
-        "pt-PT" to "Português",
-        "pt" to "Português (Brasil)",
-        "ro" to "Română",
-        "sq" to "Shqip",
-        "sk" to "Slovenčina",
-        "sl" to "Slovenščina",
-        "fi" to "Suomi",
-        "sv" to "Svenska",
-        "bo" to "Tibetan བོད་སྐད།",
-        "vi" to "Tiếng Việt",
-        "tr" to "Türkçe",
-        "bg" to "Български",
-        "ky" to "Кыргызча",
-        "kk" to "Қазақ Тілі",
-        "mk" to "Македонски",
-        "mn" to "Монгол",
-        "ru" to "Русский",
-        "sr" to "Српски",
-        "uk" to "Українська",
-        "el" to "Ελληνικά",
-        "hy" to "Հայերեն",
-        "iw" to "עברית",
-        "ur" to "اردو",
-        "ar" to "العربية",
-        "fa" to "فارسی",
-        "ne" to "नेपाली",
-        "mr" to "मराठी",
-        "hi" to "हिन्दी",
-        "bn" to "বাংলা",
-        "pa" to "ਪੰਜਾਬੀ",
-        "gu" to "ગુજરાતી",
-        "ta" to "தமிழ்",
-        "te" to "తెలుగు",
-        "kn" to "ಕನ್ನಡ",
-        "ml" to "മലയാളം",
-        "si" to "සිංහල",
-        "th" to "ภาษาไทย",
-        "lo" to "ລາວ",
-        "my" to "ဗမာ",
-        "ka" to "ქართული",
-        "am" to "አማርኛ",
-        "km" to "ខ្មែរ",
-        "zh-CN" to "中文 (简体)",
-        "zh-TW" to "中文 (繁體)",
-        "zh-HK" to "中文 (香港)",
-        "ja" to "日本語",
-        "ko" to "한국어",
-    )
+  mapOf(
+    "af" to "Afrikaans",
+    "az" to "Azərbaycan",
+    "id" to "Bahasa Indonesia",
+    "ms" to "Bahasa Malaysia",
+    "ca" to "Català",
+    "cs" to "Čeština",
+    "da" to "Dansk",
+    "de" to "Deutsch",
+    "et" to "Eesti",
+    "en-GB" to "English (UK)",
+    "en" to "English (US)",
+    "es" to "Español (España)",
+    "es-419" to "Español (Latinoamérica)",
+    "eu" to "Euskara",
+    "fil" to "Filipino",
+    "fr" to "Français",
+    "fr-CA" to "Français (Canada)",
+    "gl" to "Galego",
+    "hr" to "Hrvatski",
+    "zu" to "IsiZulu",
+    "is" to "Íslenska",
+    "it" to "Italiano",
+    "sw" to "Kiswahili",
+    "lt" to "Lietuvių",
+    "hu" to "Magyar",
+    "nl" to "Nederlands",
+    "no" to "Norsk",
+    "or" to "Odia",
+    "uz" to "O‘zbe",
+    "pl" to "Polski",
+    "pt-PT" to "Português",
+    "pt" to "Português (Brasil)",
+    "ro" to "Română",
+    "sq" to "Shqip",
+    "sk" to "Slovenčina",
+    "sl" to "Slovenščina",
+    "fi" to "Suomi",
+    "sv" to "Svenska",
+    "bo" to "Tibetan བོད་སྐད།",
+    "vi" to "Tiếng Việt",
+    "tr" to "Türkçe",
+    "bg" to "Български",
+    "ky" to "Кыргызча",
+    "kk" to "Қазақ Тілі",
+    "mk" to "Македонски",
+    "mn" to "Монгол",
+    "ru" to "Русский",
+    "sr" to "Српски",
+    "uk" to "Українська",
+    "el" to "Ελληνικά",
+    "hy" to "Հայերեն",
+    "iw" to "עברית",
+    "ur" to "اردو",
+    "ar" to "العربية",
+    "fa" to "فارسی",
+    "ne" to "नेपाली",
+    "mr" to "मराठी",
+    "hi" to "हिन्दी",
+    "bn" to "বাংলা",
+    "pa" to "ਪੰਜਾਬੀ",
+    "gu" to "ગુજરાતી",
+    "ta" to "தமிழ்",
+    "te" to "తెలుగు",
+    "kn" to "ಕನ್ನಡ",
+    "ml" to "മലയാളം",
+    "si" to "සිංහල",
+    "th" to "ภาษาไทย",
+    "lo" to "ລາວ",
+    "my" to "ဗမာ",
+    "ka" to "ქართული",
+    "am" to "አማርኛ",
+    "km" to "ខ្មែរ",
+    "zh-CN" to "中文 (简体)",
+    "zh-TW" to "中文 (繁體)",
+    "zh-HK" to "中文 (香港)",
+    "ja" to "日本語",
+    "ko" to "한국어",
+  )
 
 val CountryCodeToName =
-    mapOf(
-        "DZ" to "Algeria",
-        "AR" to "Argentina",
-        "AU" to "Australia",
-        "AT" to "Austria",
-        "AZ" to "Azerbaijan",
-        "BH" to "Bahrain",
-        "BD" to "Bangladesh",
-        "BY" to "Belarus",
-        "BE" to "Belgium",
-        "BO" to "Bolivia",
-        "BA" to "Bosnia and Herzegovina",
-        "BR" to "Brazil",
-        "BG" to "Bulgaria",
-        "KH" to "Cambodia",
-        "CA" to "Canada",
-        "CL" to "Chile",
-        "HK" to "Hong Kong",
-        "CO" to "Colombia",
-        "CR" to "Costa Rica",
-        "HR" to "Croatia",
-        "CY" to "Cyprus",
-        "CZ" to "Czech Republic",
-        "DK" to "Denmark",
-        "DO" to "Dominican Republic",
-        "EC" to "Ecuador",
-        "EG" to "Egypt",
-        "SV" to "El Salvador",
-        "EE" to "Estonia",
-        "FI" to "Finland",
-        "FR" to "France",
-        "GE" to "Georgia",
-        "DE" to "Germany",
-        "GH" to "Ghana",
-        "GR" to "Greece",
-        "GT" to "Guatemala",
-        "HN" to "Honduras",
-        "HU" to "Hungary",
-        "IS" to "Iceland",
-        "IN" to "India",
-        "ID" to "Indonesia",
-        "IQ" to "Iraq",
-        "IE" to "Ireland",
-        "IL" to "Israel",
-        "IT" to "Italy",
-        "JM" to "Jamaica",
-        "JP" to "Japan",
-        "JO" to "Jordan",
-        "KZ" to "Kazakhstan",
-        "KE" to "Kenya",
-        "KR" to "South Korea",
-        "KW" to "Kuwait",
-        "LA" to "Lao",
-        "LV" to "Latvia",
-        "LB" to "Lebanon",
-        "LY" to "Libya",
-        "LI" to "Liechtenstein",
-        "LT" to "Lithuania",
-        "LU" to "Luxembourg",
-        "MK" to "Macedonia",
-        "MY" to "Malaysia",
-        "MT" to "Malta",
-        "MX" to "Mexico",
-        "ME" to "Montenegro",
-        "MA" to "Morocco",
-        "NP" to "Nepal",
-        "NL" to "Netherlands",
-        "NZ" to "New Zealand",
-        "NI" to "Nicaragua",
-        "NG" to "Nigeria",
-        "NO" to "Norway",
-        "OM" to "Oman",
-        "PK" to "Pakistan",
-        "PA" to "Panama",
-        "PG" to "Papua New Guinea",
-        "PY" to "Paraguay",
-        "PE" to "Peru",
-        "PH" to "Philippines",
-        "PL" to "Poland",
-        "PT" to "Portugal",
-        "PR" to "Puerto Rico",
-        "QA" to "Qatar",
-        "RO" to "Romania",
-        "RU" to "Russian Federation",
-        "SA" to "Saudi Arabia",
-        "SN" to "Senegal",
-        "RS" to "Serbia",
-        "SG" to "Singapore",
-        "SK" to "Slovakia",
-        "SI" to "Slovenia",
-        "ZA" to "South Africa",
-        "ES" to "Spain",
-        "LK" to "Sri Lanka",
-        "SE" to "Sweden",
-        "CH" to "Switzerland",
-        "TW" to "Taiwan",
-        "TZ" to "Tanzania",
-        "TH" to "Thailand",
-        "TN" to "Tunisia",
-        "TR" to "Turkey",
-        "UG" to "Uganda",
-        "UA" to "Ukraine",
-        "AE" to "United Arab Emirates",
-        "GB" to "United Kingdom",
-        "US" to "United States",
-        "UY" to "Uruguay",
-        "VE" to "Venezuela (Bolivarian Republic)",
-        "VN" to "Vietnam",
-        "YE" to "Yemen",
-        "ZW" to "Zimbabwe",
-    )
+  mapOf(
+    "DZ" to "Algeria",
+    "AR" to "Argentina",
+    "AU" to "Australia",
+    "AT" to "Austria",
+    "AZ" to "Azerbaijan",
+    "BH" to "Bahrain",
+    "BD" to "Bangladesh",
+    "BY" to "Belarus",
+    "BE" to "Belgium",
+    "BO" to "Bolivia",
+    "BA" to "Bosnia and Herzegovina",
+    "BR" to "Brazil",
+    "BG" to "Bulgaria",
+    "KH" to "Cambodia",
+    "CA" to "Canada",
+    "CL" to "Chile",
+    "HK" to "Hong Kong",
+    "CO" to "Colombia",
+    "CR" to "Costa Rica",
+    "HR" to "Croatia",
+    "CY" to "Cyprus",
+    "CZ" to "Czech Republic",
+    "DK" to "Denmark",
+    "DO" to "Dominican Republic",
+    "EC" to "Ecuador",
+    "EG" to "Egypt",
+    "SV" to "El Salvador",
+    "EE" to "Estonia",
+    "FI" to "Finland",
+    "FR" to "France",
+    "GE" to "Georgia",
+    "DE" to "Germany",
+    "GH" to "Ghana",
+    "GR" to "Greece",
+    "GT" to "Guatemala",
+    "HN" to "Honduras",
+    "HU" to "Hungary",
+    "IS" to "Iceland",
+    "IN" to "India",
+    "ID" to "Indonesia",
+    "IQ" to "Iraq",
+    "IE" to "Ireland",
+    "IL" to "Israel",
+    "IT" to "Italy",
+    "JM" to "Jamaica",
+    "JP" to "Japan",
+    "JO" to "Jordan",
+    "KZ" to "Kazakhstan",
+    "KE" to "Kenya",
+    "KR" to "South Korea",
+    "KW" to "Kuwait",
+    "LA" to "Lao",
+    "LV" to "Latvia",
+    "LB" to "Lebanon",
+    "LY" to "Libya",
+    "LI" to "Liechtenstein",
+    "LT" to "Lithuania",
+    "LU" to "Luxembourg",
+    "MK" to "Macedonia",
+    "MY" to "Malaysia",
+    "MT" to "Malta",
+    "MX" to "Mexico",
+    "ME" to "Montenegro",
+    "MA" to "Morocco",
+    "NP" to "Nepal",
+    "NL" to "Netherlands",
+    "NZ" to "New Zealand",
+    "NI" to "Nicaragua",
+    "NG" to "Nigeria",
+    "NO" to "Norway",
+    "OM" to "Oman",
+    "PK" to "Pakistan",
+    "PA" to "Panama",
+    "PG" to "Papua New Guinea",
+    "PY" to "Paraguay",
+    "PE" to "Peru",
+    "PH" to "Philippines",
+    "PL" to "Poland",
+    "PT" to "Portugal",
+    "PR" to "Puerto Rico",
+    "QA" to "Qatar",
+    "RO" to "Romania",
+    "RU" to "Russian Federation",
+    "SA" to "Saudi Arabia",
+    "SN" to "Senegal",
+    "RS" to "Serbia",
+    "SG" to "Singapore",
+    "SK" to "Slovakia",
+    "SI" to "Slovenia",
+    "ZA" to "South Africa",
+    "ES" to "Spain",
+    "LK" to "Sri Lanka",
+    "SE" to "Sweden",
+    "CH" to "Switzerland",
+    "TW" to "Taiwan",
+    "TZ" to "Tanzania",
+    "TH" to "Thailand",
+    "TN" to "Tunisia",
+    "TR" to "Turkey",
+    "UG" to "Uganda",
+    "UA" to "Ukraine",
+    "AE" to "United Arab Emirates",
+    "GB" to "United Kingdom",
+    "US" to "United States",
+    "UY" to "Uruguay",
+    "VE" to "Venezuela (Bolivarian Republic)",
+    "VN" to "Vietnam",
+    "YE" to "Yemen",
+    "ZW" to "Zimbabwe",
+  )
 
 val SuggestionRegionSlugToName =
-    mapOf(
-        "system" to "System Default",
-        "us" to "Global (USA)",
-        "in" to "India",
-        "gb" to "United Kingdom",
-        "ca" to "Canada",
-        "au" to "Australia",
-        "jp" to "Japan",
-        "kr" to "South Korea",
-        "de" to "Germany",
-        "fr" to "France",
-        "br" to "Brazil",
-        "mx" to "Mexico",
-        "ru" to "Russia",
-        "it" to "Italy",
-        "es" to "Spain",
-        "nl" to "Netherlands",
-        "se" to "Sweden",
-        "no" to "Norway",
-        "dk" to "Denmark",
-        "fi" to "Finland",
-        "pl" to "Poland",
-        "tr" to "Turkey",
-        "za" to "South Africa",
-        "ng" to "Nigeria",
-        "id" to "Indonesia",
-        "my" to "Malaysia",
-        "ph" to "Philippines",
-        "th" to "Thailand",
-        "vn" to "Vietnam",
-        "tw" to "Taiwan",
-        "hk" to "Hong Kong",
-        "sg" to "Singapore",
-        "ar" to "Argentina",
-        "co" to "Colombia",
-        "cl" to "Chile",
-        "pe" to "Peru",
-        "eg" to "Egypt",
-        "sa" to "Saudi Arabia",
-        "ae" to "United Arab Emirates",
-        "il" to "Israel"
-    )
+  mapOf(
+    "system" to "System Default",
+    "us" to "Global (USA)",
+    "in" to "India",
+    "gb" to "United Kingdom",
+    "ca" to "Canada",
+    "au" to "Australia",
+    "jp" to "Japan",
+    "kr" to "South Korea",
+    "de" to "Germany",
+    "fr" to "France",
+    "br" to "Brazil",
+    "mx" to "Mexico",
+    "ru" to "Russia",
+    "it" to "Italy",
+    "es" to "Spain",
+    "nl" to "Netherlands",
+    "se" to "Sweden",
+    "no" to "Norway",
+    "dk" to "Denmark",
+    "fi" to "Finland",
+    "pl" to "Poland",
+    "tr" to "Turkey",
+    "za" to "South Africa",
+    "ng" to "Nigeria",
+    "id" to "Indonesia",
+    "my" to "Malaysia",
+    "ph" to "Philippines",
+    "th" to "Thailand",
+    "vn" to "Vietnam",
+    "tw" to "Taiwan",
+    "hk" to "Hong Kong",
+    "sg" to "Singapore",
+    "ar" to "Argentina",
+    "co" to "Colombia",
+    "cl" to "Chile",
+    "pe" to "Peru",
+    "eg" to "Egypt",
+    "sa" to "Saudi Arabia",
+    "ae" to "United Arab Emirates",
+    "il" to "Israel"
+  )
 
 val SpatialAudioEnabledKey = booleanPreferencesKey("spatial_audio_enabled")
 val SpatialAudioStrengthKey = floatPreferencesKey("spatial_audio_strength")
@@ -899,16 +878,16 @@ val AmbientFullScreenArtKey = booleanPreferencesKey("ambient_full_screen_art")
 val AmbientSpacingKey = floatPreferencesKey("ambient_spacing")
 
 enum class AppFont(val value: String) {
-    SYSTEM("system"),
-    GOOGLE_SANS("google_sans"),
-    SANS_FLEX("sans_flex"),
-    OUTFIT("outfit"),
-    PLUS_JAKARTA_SANS("plus_jakarta_sans"),
-    CUSTOM("custom");
+  SYSTEM("system"),
+  GOOGLE_SANS("google_sans"),
+  SANS_FLEX("sans_flex"),
+  OUTFIT("outfit"),
+  PLUS_JAKARTA_SANS("plus_jakarta_sans"),
+  CUSTOM("custom");
 
-    companion object {
-        fun fromValue(value: String): AppFont = entries.find { it.value == value } ?: SYSTEM
-    }
+  companion object {
+    fun fromValue(value: String): AppFont = entries.find { it.value == value } ?: SYSTEM
+  }
 }
 
 val SelectedFontKey = stringPreferencesKey("selected_app_font")
