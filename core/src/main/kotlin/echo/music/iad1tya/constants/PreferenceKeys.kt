@@ -45,9 +45,11 @@ val SelectedThemeColorKey = intPreferencesKey("selectedThemeColor")
 val DarkModeKey = stringPreferencesKey("darkMode")
 val PureBlackKey = booleanPreferencesKey("pureBlack")
 val PureBlackMiniPlayerKey = booleanPreferencesKey("pureBlackMiniPlayer")
+val IsMonochromeThemeKey = booleanPreferencesKey("is_monochrome_theme")
 val MiniPlayerOutlineKey = booleanPreferencesKey("miniPlayerOutline")
 val DensityScaleKey = floatPreferencesKey("density_scale_factor")
 val CustomDensityScaleKey = floatPreferencesKey("custom_density_scale_value")
+val EchoWrappedBannerDismissedKey = booleanPreferencesKey("echo_wrapped_banner_dismissed_2026")
 
 enum class DensityScale(val value: Float, val label: String) {
   NATIVE(1.0f, "Native (100%)"),
@@ -206,6 +208,8 @@ val ExportProgressKey = stringPreferencesKey("exportProgress")
 val EnableExportAsMp3Key = booleanPreferencesKey("enableExportAsMp3")
 
 val PauseListenHistoryKey = booleanPreferencesKey("pauseListenHistory")
+/** Whether podcast shows leave out the episodes already played (phone and Android Auto). */
+val PodcastHidePlayedKey = booleanPreferencesKey("podcastHidePlayed")
 val PauseSearchHistoryKey = booleanPreferencesKey("pauseSearchHistory")
 val DisableScreenshotKey = booleanPreferencesKey("disableScreenshot")
 

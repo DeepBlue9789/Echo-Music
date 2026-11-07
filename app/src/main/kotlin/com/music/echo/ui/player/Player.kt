@@ -38,6 +38,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -83,6 +84,7 @@ import androidx.compose.material3.OutlinedIconButton
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -184,6 +186,7 @@ import echo.music.iad1tya.constants.EnableLyricsThumbnailPlayPauseKey
 import echo.music.iad1tya.constants.HidePlayerThumbnailKey
 import echo.music.iad1tya.constants.HideStatusBarOnFullscreenKey
 import echo.music.iad1tya.constants.KeepScreenOn
+import echo.music.iad1tya.constants.MusicFlowEnabledKey
 import echo.music.iad1tya.constants.PlayerBackgroundStyle
 import echo.music.iad1tya.constants.PlayerBackgroundStyleKey
 import echo.music.iad1tya.constants.PlayerButtonsStyle
@@ -202,6 +205,10 @@ import echo.music.iad1tya.db.entities.LyricsEntity
 import echo.music.iad1tya.echomusic.getConnectedBluetoothDeviceName
 import echo.music.iad1tya.echomusic.isBuds
 import echo.music.iad1tya.echomusic.isSpeaker
+import echo.music.iad1tya.playback.audio.bluetooth.BluetoothAudioTracker
+import echo.music.iad1tya.playback.audio.bluetooth.BluetoothTelemetry
+import com.music.echo.ui.component.BitPerfectBadge
+import echo.music.usbaudio.DacDeviceState
 import echo.music.iad1tya.echomusiccanvas.echomusicCanvasProvider
 import echo.music.iad1tya.extensions.SwipeGesture
 import echo.music.iad1tya.extensions.togglePlayPause
@@ -226,6 +233,9 @@ import echo.music.iad1tya.ui.theme.PlayerColorExtractor
 import echo.music.iad1tya.ui.theme.PlayerSliderColors
 import echo.music.iad1tya.ui.utils.ShowMediaInfo
 import echo.music.iad1tya.ui.utils.ShowOffsetDialog
+import com.music.innertube.models.PODCAST_BROWSE_PREFIX
+import com.music.innertube.models.WatchEndpoint.WatchEndpointMusicSupportedConfigs.WatchEndpointMusicConfig.Companion.MUSIC_VIDEO_TYPE_PODCAST_EPISODE
+import echo.music.iad1tya.utils.PodcastProgress
 import echo.music.iad1tya.utils.isLocalMediaId
 import echo.music.iad1tya.utils.makeTimeString
 import echo.music.iad1tya.utils.rememberEnumPreference
@@ -296,6 +306,8 @@ fun BottomSheetPlayer(
 
   val (useNewPlayerDesign, onUseNewPlayerDesignChange) =
     rememberPreference(UseNewPlayerDesignKey, defaultValue = true)
+  val (musicFlowEnabled) =
+    rememberPreference(MusicFlowEnabledKey, defaultValue = true)
   val showCodecOnPlayer by
     rememberPreference(echo.music.iad1tya.constants.ShowCodecOnPlayerKey, false)
   val hidePlayerSlider by
@@ -306,6 +318,14 @@ fun BottomSheetPlayer(
   val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
   val showLyricsOnPlayer by rememberPreference(ShowLyricsOnPlayerKey, false)
   val mediaMetadata by playerConnection.mediaMetadata.collectAsState()
+  val isEpisode =
+    mediaMetadata?.let { metadata ->
+      val durationMs = maxOf(playerConnection.player.duration, metadata.duration * 1000L)
+      PodcastProgress.get(metadata.id) != null ||
+        PodcastProgress.isEpisode(metadata, durationMs) ||
+        metadata.musicVideoType == MUSIC_VIDEO_TYPE_PODCAST_EPISODE ||
+        metadata.artists.any { it.id?.startsWith(PODCAST_BROWSE_PREFIX) == true }
+    } == true
   val isLocalMedia = mediaMetadata?.id?.isLocalMediaId() == true
 
   val playerBackgroundPref by
@@ -538,6 +558,15 @@ fun BottomSheetPlayer(
     playerConnection.service.addToQueueAutomix(automix[0], 0)
   }
 
+  val bluetoothTracker = remember(context) { BluetoothAudioTracker(context) }
+  DisposableEffect(bluetoothTracker) {
+    bluetoothTracker.start()
+    onDispose { bluetoothTracker.stop() }
+  }
+  val bluetoothTelemetry by bluetoothTracker.telemetry.collectAsState()
+
+  val dacDeviceState by (playerConnection.service.usbDacManager.activeDacFlow).collectAsState()
+
   val bluetoothDeviceName by
     produceState<String?>(initialValue = getConnectedBluetoothDeviceName(context)) {
       val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -725,6 +754,13 @@ fun BottomSheetPlayer(
     if (canvasFetchInFlight) return@LaunchedEffect
     canvasFetchInFlight = true
 
+    val playerDurationSec =
+      try {
+        playerConnection.player.duration.takeIf { it > 0 }?.div(1000L)
+      } catch (e: Exception) {
+        null
+      }
+
     withContext(Dispatchers.IO) {
       val storefront =
         Locale.getDefault().country.lowercase(Locale.ROOT).takeIf { it.length == 2 } ?: "us"
@@ -745,19 +781,29 @@ fun BottomSheetPlayer(
           ?: AppleMusicCanvasProvider.getBySongArtist(s, a, requestedAlbum, storefront)?.takeIf {
             !it.preferredAnimationUrl.isNullOrBlank()
           }
+          ?: echo.music.iad1tya.canvas.YouTubeVideoCanvasProvider.getCanvasForVideo(
+            videoId = item.id,
+            title = requestedTitle,
+            artist = requestedArtist,
+            durationSec = item.duration.toLong().takeIf { it > 0 } ?: playerDurationSec
+          )
 
       val validated =
-        fetched?.let { artwork ->
-          val localArtists = splitAndNormalizeArtists(requestedArtist)
-          val returnedArtists = splitAndNormalizeArtists(artwork.artist ?: "")
-          val artistMatches =
-            localArtists.isNotEmpty() &&
-              returnedArtists.isNotEmpty() &&
-              (localArtists.any { local ->
-                returnedArtists.any { it.equals(local, ignoreCase = true) }
-              })
+        if (fetched?.clipStartMs != null) {
+          fetched
+        } else {
+          fetched?.let { artwork ->
+            val localArtists = splitAndNormalizeArtists(requestedArtist)
+            val returnedArtists = splitAndNormalizeArtists(artwork.artist ?: "")
+            val artistMatches =
+              localArtists.isNotEmpty() &&
+                returnedArtists.isNotEmpty() &&
+                (localArtists.any { local ->
+                  returnedArtists.any { it.equals(local, ignoreCase = true) }
+                })
 
-          if (artistMatches) artwork else null
+            if (artistMatches) artwork else null
+          }
         }
 
       withContext(Dispatchers.Main) {
@@ -1283,7 +1329,7 @@ fun BottomSheetPlayer(
                   Box(
                     modifier =
                       Modifier.fillMaxWidth()
-                        .fillMaxHeight(0.65f)
+                        .fillMaxHeight(0.68f)
                         .alpha(clearArtworkAlpha)
                         .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                         .drawWithContent {
@@ -1295,8 +1341,8 @@ fun BottomSheetPlayer(
                                 colorStops =
                                   arrayOf(
                                     0.00f to Color.Black,
-                                    0.75f to Color.Black,
-                                    0.92f to Color.Black.copy(alpha = 0.4f),
+                                    0.70f to Color.Black,
+                                    0.88f to Color.Black.copy(alpha = 0.4f),
                                     1.00f to Color.Transparent,
                                   )
                               ),
@@ -1316,9 +1362,12 @@ fun BottomSheetPlayer(
                     )
 
                     if (enableCanvas && canvasArtwork != null && showCanvas) {
-                      BackgroundVideoView(
-                        videoUrl = canvasArtwork?.animated ?: canvasArtwork?.videoUrl ?: "",
+                      CanvasArtworkPlayer(
+                        primaryUrl = canvasArtwork?.animated,
+                        fallbackUrl = canvasArtwork?.videoUrl,
                         isPlaying = isPlaying,
+                        clipStartMs = canvasArtwork?.clipStartMs,
+                        clipEndMs = canvasArtwork?.clipEndMs,
                         modifier = Modifier.fillMaxSize()
                       )
                     }
@@ -1573,6 +1622,77 @@ fun BottomSheetPlayer(
                 onSwipeLeft = { playerConnection.seekToNext() }
               )
         ) {
+          if (isEpisode) {
+            Surface(
+              onClick = {
+                navController.navigate("podcast_video") { launchSingleTop = true }
+              },
+              shape = CircleShape,
+              color = TextBackgroundColor.copy(alpha = 0.12f),
+              contentColor = TextBackgroundColor,
+              border = BorderStroke(1.dp, TextBackgroundColor.copy(alpha = 0.2f)),
+              modifier = Modifier.padding(bottom = 6.dp)
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+              ) {
+                Icon(
+                  painter = painterResource(R.drawable.ic_smart_display),
+                  contentDescription = null,
+                  tint = TextBackgroundColor,
+                  modifier = Modifier.size(13.dp)
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                  text = "Video",
+                  style =
+                    MaterialTheme.typography.labelSmall.copy(
+                      fontWeight = FontWeight.SemiBold,
+                      fontSize = 11.5.sp,
+                      letterSpacing = 0.2.sp
+                    ),
+                  color = TextBackgroundColor
+                )
+              }
+            }
+          } else if (musicFlowEnabled) {
+            Surface(
+              onClick = {
+                navController.navigate("music_flow") { launchSingleTop = true }
+                state.collapseSoft()
+              },
+              shape = CircleShape,
+              color = TextBackgroundColor.copy(alpha = 0.12f),
+              contentColor = TextBackgroundColor,
+              border = BorderStroke(1.dp, TextBackgroundColor.copy(alpha = 0.2f)),
+              modifier = Modifier.padding(bottom = 6.dp)
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+              ) {
+                Icon(
+                  painter = painterResource(R.drawable.swipe_vertical),
+                  contentDescription = null,
+                  tint = TextBackgroundColor,
+                  modifier = Modifier.size(13.dp)
+                )
+                Spacer(Modifier.width(5.dp))
+                Text(
+                  text = stringResource(R.string.music_flow),
+                  style =
+                    MaterialTheme.typography.labelSmall.copy(
+                      fontWeight = FontWeight.SemiBold,
+                      fontSize = 11.5.sp,
+                      letterSpacing = 0.2.sp
+                    ),
+                  color = TextBackgroundColor
+                )
+              }
+            }
+          }
+
           AnimatedContent(
             targetState = mediaMetadata.title,
             transitionSpec = { fadeIn() togetherWith fadeOut() },
@@ -2178,16 +2298,45 @@ fun BottomSheetPlayer(
             remember(currentAudioFormat, currentFormatEntity) {
               val localAudioFormat = currentAudioFormat
               val localFormatEntity = currentFormatEntity
-              val codecStr =
-                localAudioFormat?.sampleMimeType?.substringAfter("audio/")?.uppercase()
-                  ?: localFormatEntity?.codecs?.uppercase()
-                  ?: ""
-              var bitrateStr = ""
-              if (localFormatEntity?.bitrate != null && localFormatEntity.bitrate > 0) {
-                bitrateStr = "${localFormatEntity.bitrate / 1000} kbps"
-              } else if (localAudioFormat?.bitrate != null && localAudioFormat.bitrate > 0) {
-                bitrateStr = "${localAudioFormat.bitrate / 1000} kbps"
+
+              val sampleMime = localAudioFormat?.sampleMimeType?.lowercase().orEmpty()
+              val entityMime = localFormatEntity?.mimeType?.lowercase().orEmpty()
+              val entityCodecs = localFormatEntity?.codecs?.lowercase().orEmpty()
+
+              val codecStr = when {
+                sampleMime.contains("alac") -> "ALAC"
+                sampleMime.contains("flac") -> "FLAC"
+                sampleMime.contains("opus") -> "OPUS"
+                sampleMime.contains("mp4a") || sampleMime.contains("aac") -> "AAC"
+                sampleMime.contains("mpeg") || sampleMime.contains("mp3") -> "MP3"
+                sampleMime.contains("vorbis") -> "VORBIS"
+                // Fallbacks if ExoPlayer track format not ready yet:
+                entityCodecs.contains("alac") || entityMime.contains("alac") -> "ALAC"
+                entityCodecs.contains("flac") || entityMime.contains("flac") -> "FLAC"
+                entityCodecs.contains("opus") || entityMime.contains("opus") || entityMime.contains("webm") -> "OPUS"
+                entityCodecs.contains("mp4a") || entityCodecs.contains("aac") || entityMime.contains("mp4") -> "AAC"
+                entityCodecs.contains("mp3") || entityMime.contains("mpeg") -> "MP3"
+                entityCodecs.isNotBlank() && entityCodecs != "unknown" -> entityCodecs.uppercase()
+                sampleMime.isNotBlank() -> sampleMime.substringAfter("audio/").uppercase()
+                entityMime.isNotBlank() -> entityMime.substringAfter("audio/").uppercase()
+                else -> ""
               }
+
+              val rawBitrate = when {
+                localAudioFormat != null && localAudioFormat.bitrate > 0 -> localAudioFormat.bitrate
+                localAudioFormat != null && localAudioFormat.averageBitrate > 0 -> localAudioFormat.averageBitrate
+                localFormatEntity != null && localFormatEntity.bitrate > 0 -> {
+                  // Guard against stale poisoned bitrate (e.g. 1411200 saved for an opus/aac stream)
+                  if ((codecStr == "OPUS" || codecStr == "AAC") && localFormatEntity.bitrate > 400000) {
+                    if (codecStr == "OPUS") 160000 else 256000
+                  } else {
+                    localFormatEntity.bitrate
+                  }
+                }
+                else -> 0
+              }
+
+              val bitrateStr = if (rawBitrate > 0) "${rawBitrate / 1000} kbps" else ""
               listOf(codecStr, bitrateStr).filter { it.isNotEmpty() }.joinToString(" • ")
             }
 
@@ -2206,6 +2355,19 @@ fun BottomSheetPlayer(
             showCodecOnPlayer && (formatText.isNotEmpty() || isBuffering) ||
               isCrossfading ||
               mixCountdownActive
+
+          if (dacDeviceState is DacDeviceState.Connected) {
+            val connectedDac = dacDeviceState as DacDeviceState.Connected
+            val caps = connectedDac.capabilities
+            val bestRate = caps.supportedSampleRates.maxOrNull() ?: 96000
+            val bestBits = caps.supportedFormats.maxOfOrNull { it.bitDepth } ?: 24
+            BitPerfectBadge(
+              sampleRate = bestRate,
+              bitDepth = bestBits,
+              uacVersion = caps.uacVersion,
+            )
+          }
+
           if (sleepTimerEnabled || shouldShowCodecBox) {
             Box(
               modifier =
@@ -2411,7 +2573,24 @@ fun BottomSheetPlayer(
             fadeOut()
       ) {
         Column {
-          if (showSeekButtons) {
+          if (isEpisode) {
+            EpisodeControls(
+              enabled =
+                !isListenTogetherGuest &&
+                  (if (isCasting) castDuration > 0
+                  else playerConnection.player.isCurrentMediaItemSeekable),
+              color = TextBackgroundColor,
+              onSeek = { offsetMs ->
+                playerConnection.seekTo(
+                  echo.music.iad1tya.playback.seekButtonTarget(
+                    if (isCasting) castPosition else playerConnection.player.currentPosition,
+                    if (isCasting) castDuration else playerConnection.player.duration,
+                    offsetMs,
+                  )
+                )
+              },
+            )
+          } else if (showSeekButtons && !useNewPlayerDesign) {
             SeekButtons(
               enabled =
                 !isListenTogetherGuest &&
@@ -2432,44 +2611,82 @@ fun BottomSheetPlayer(
             )
           }
           if (useNewPlayerDesign) {
+            val seekButtonsEnabled =
+              !isListenTogetherGuest &&
+                (if (isCasting) castDuration > 0
+                else playerConnection.player.isCurrentMediaItemSeekable)
+            val seekBy: (Long) -> Unit = { offsetMs ->
+              val currentPosition =
+                if (isCasting) castPosition else playerConnection.player.currentPosition
+              val currentDuration =
+                if (isCasting) castDuration else playerConnection.player.duration
+              playerConnection.seekTo(
+                echo.music.iad1tya.playback.seekButtonTarget(
+                  currentPosition, currentDuration, offsetMs
+                )
+              )
+            }
+
+            val backInteractionSource = remember { MutableInteractionSource() }
+            val nextInteractionSource = remember { MutableInteractionSource() }
+            val playPauseInteractionSource = remember { MutableInteractionSource() }
+            val seekBackInteractionSource = remember { MutableInteractionSource() }
+            val seekForwardInteractionSource = remember { MutableInteractionSource() }
+
+            val isPlayPausePressed by playPauseInteractionSource.collectIsPressedAsState()
+            val isBackPressed by backInteractionSource.collectIsPressedAsState()
+            val isNextPressed by nextInteractionSource.collectIsPressedAsState()
+            val isSeekBackPressed by seekBackInteractionSource.collectIsPressedAsState()
+            val isSeekForwardPressed by seekForwardInteractionSource.collectIsPressedAsState()
+
+            val playPauseScale by
+              animateFloatAsState(
+                targetValue = if (isPlayPausePressed) 0.9f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+                label = "playPauseScale"
+              )
+
+            val backButtonScale by
+              animateFloatAsState(
+                targetValue = if (isBackPressed) 0.9f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+                label = "backButtonScale"
+              )
+
+            val nextButtonScale by
+              animateFloatAsState(
+                targetValue = if (isNextPressed) 0.9f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+                label = "nextButtonScale"
+              )
+
+            val seekBackScale by
+              animateFloatAsState(
+                targetValue = if (isSeekBackPressed) 0.9f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+                label = "seekBackScale"
+              )
+
+            val seekForwardScale by
+              animateFloatAsState(
+                targetValue = if (isSeekForwardPressed) 0.9f else 1f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
+                label = "seekForwardScale"
+              )
+
+            val mainButtonSize = if (showSeekButtons) 58.dp else 88.dp
+            val mainButtonSquircle = RoundedCornerShape(if (showSeekButtons) 18.dp else 26.dp)
+            val seekButtonSquircle = RoundedCornerShape(15.dp)
+
             Row(
-              horizontalArrangement = Arrangement.Center,
+              horizontalArrangement = if (showSeekButtons) Arrangement.SpaceEvenly else Arrangement.Center,
               verticalAlignment = Alignment.CenterVertically,
-              modifier = Modifier.fillMaxWidth().padding(horizontal = PlayerHorizontalPadding)
+              modifier = Modifier.fillMaxWidth().padding(horizontal = if (showSeekButtons) 8.dp else PlayerHorizontalPadding)
             ) {
-              val backInteractionSource = remember { MutableInteractionSource() }
-              val nextInteractionSource = remember { MutableInteractionSource() }
-              val playPauseInteractionSource = remember { MutableInteractionSource() }
-
-              val isPlayPausePressed by playPauseInteractionSource.collectIsPressedAsState()
-              val isBackPressed by backInteractionSource.collectIsPressedAsState()
-              val isNextPressed by nextInteractionSource.collectIsPressedAsState()
-
-              val playPauseScale by
-                animateFloatAsState(
-                  targetValue = if (isPlayPausePressed) 0.9f else 1f,
-                  animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
-                  label = "playPauseScale"
-                )
-
-              val backButtonScale by
-                animateFloatAsState(
-                  targetValue = if (isBackPressed) 0.9f else 1f,
-                  animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
-                  label = "backButtonScale"
-                )
-
-              val nextButtonScale by
-                animateFloatAsState(
-                  targetValue = if (isNextPressed) 0.9f else 1f,
-                  animationSpec = spring(dampingRatio = 0.6f, stiffness = 500f),
-                  label = "nextButtonScale"
-                )
-
               FilledIconButton(
                 onClick = playerConnection::seekToPrevious,
                 enabled = canSkipPrevious && !isListenTogetherGuest,
-                shape = CircleShape,
+                shape = mainButtonSquircle,
                 interactionSource = backInteractionSource,
                 colors =
                   IconButtonDefaults.filledIconButtonColors(
@@ -2477,7 +2694,7 @@ fun BottomSheetPlayer(
                     contentColor = sideButtonContentColor,
                   ),
                 modifier =
-                  Modifier.size(68.dp).graphicsLayer {
+                  Modifier.size(mainButtonSize).graphicsLayer {
                     scaleX = backButtonScale
                     scaleY = backButtonScale
                   }
@@ -2485,11 +2702,36 @@ fun BottomSheetPlayer(
                 Icon(
                   painter = painterResource(R.drawable.skip_previous),
                   contentDescription = null,
-                  modifier = Modifier.size(32.dp)
+                  modifier = Modifier.size(if (showSeekButtons) 28.dp else 36.dp)
                 )
               }
 
-              Spacer(modifier = Modifier.width(24.dp))
+              if (showSeekButtons) {
+                FilledIconButton(
+                  onClick = { seekBy(-10_000L) },
+                  enabled = seekButtonsEnabled,
+                  shape = seekButtonSquircle,
+                  interactionSource = seekBackInteractionSource,
+                  colors =
+                    IconButtonDefaults.filledIconButtonColors(
+                      containerColor = sideButtonContainerColor,
+                      contentColor = sideButtonContentColor,
+                    ),
+                  modifier =
+                    Modifier.size(48.dp).graphicsLayer {
+                      scaleX = seekBackScale
+                      scaleY = seekBackScale
+                    }
+                ) {
+                  Icon(
+                    painter = painterResource(R.drawable.ic_replay_10),
+                    contentDescription = stringResource(R.string.seek_back_ten_seconds),
+                    modifier = Modifier.size(24.dp)
+                  )
+                }
+              } else {
+                Spacer(modifier = Modifier.width(16.dp))
+              }
 
               val cookieIndent by
                 animateFloatAsState(
@@ -2531,7 +2773,7 @@ fun BottomSheetPlayer(
                   }
                 },
                 shape =
-                  if (wavyPlayPause && cookieIndent > 0f) WavyShape(9, cookieIndent, rotation) else CircleShape,
+                  if (wavyPlayPause && cookieIndent > 0f) WavyShape(9, cookieIndent, rotation) else mainButtonSquircle,
                 interactionSource = playPauseInteractionSource,
                 colors =
                   IconButtonDefaults.filledIconButtonColors(
@@ -2539,7 +2781,7 @@ fun BottomSheetPlayer(
                     contentColor = iconButtonColor,
                   ),
                 modifier =
-                  Modifier.size(84.dp).graphicsLayer {
+                  Modifier.size(mainButtonSize).graphicsLayer {
                     scaleX = playPauseScale
                     scaleY = playPauseScale
                   }
@@ -2565,17 +2807,42 @@ fun BottomSheetPlayer(
                         if (effectiveIsPlaying) stringResource(R.string.pause)
                         else stringResource(R.string.play)
                       },
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(if (showSeekButtons) 30.dp else 38.dp)
                   )
                 }
               }
 
-              Spacer(modifier = Modifier.width(24.dp))
+              if (showSeekButtons) {
+                FilledIconButton(
+                  onClick = { seekBy(10_000L) },
+                  enabled = seekButtonsEnabled,
+                  shape = seekButtonSquircle,
+                  interactionSource = seekForwardInteractionSource,
+                  colors =
+                    IconButtonDefaults.filledIconButtonColors(
+                      containerColor = sideButtonContainerColor,
+                      contentColor = sideButtonContentColor,
+                    ),
+                  modifier =
+                    Modifier.size(48.dp).graphicsLayer {
+                      scaleX = seekForwardScale
+                      scaleY = seekForwardScale
+                    }
+                ) {
+                  Icon(
+                    painter = painterResource(R.drawable.ic_forward_10),
+                    contentDescription = stringResource(R.string.seek_forward_ten_seconds),
+                    modifier = Modifier.size(24.dp)
+                  )
+                }
+              } else {
+                Spacer(modifier = Modifier.width(16.dp))
+              }
 
               FilledIconButton(
                 onClick = playerConnection::seekToNext,
                 enabled = canSkipNext && !isListenTogetherGuest,
-                shape = CircleShape,
+                shape = mainButtonSquircle,
                 interactionSource = nextInteractionSource,
                 colors =
                   IconButtonDefaults.filledIconButtonColors(
@@ -2583,7 +2850,7 @@ fun BottomSheetPlayer(
                     contentColor = sideButtonContentColor,
                   ),
                 modifier =
-                  Modifier.size(68.dp).graphicsLayer {
+                  Modifier.size(mainButtonSize).graphicsLayer {
                     scaleX = nextButtonScale
                     scaleY = nextButtonScale
                   }
@@ -2591,7 +2858,7 @@ fun BottomSheetPlayer(
                 Icon(
                   painter = painterResource(R.drawable.skip_next),
                   contentDescription = null,
-                  modifier = Modifier.size(32.dp)
+                  modifier = Modifier.size(if (showSeekButtons) 28.dp else 36.dp)
                 )
               }
             }
@@ -2782,13 +3049,22 @@ fun BottomSheetPlayer(
               if (bluetoothDeviceName != null) lastNonNullName = bluetoothDeviceName
             }
 
+            val hasBtConnection = bluetoothDeviceName != null || bluetoothTelemetry.isConnected
             AnimatedVisibility(
-              visible = !useNewPlayerDesign && bluetoothDeviceName != null,
+              visible = !useNewPlayerDesign && hasBtConnection,
               enter = fadeIn(tween(400)) + expandVertically(tween(400)),
               exit = fadeOut(tween(400)) + shrinkVertically(tween(400)),
               label = "BluetoothInfoVisibility"
             ) {
-              val nameToShow = bluetoothDeviceName ?: lastNonNullName
+              val nameToShow = when {
+                bluetoothTelemetry.isConnected && bluetoothTelemetry.hasNamedCodec -> {
+                  val baseName = bluetoothTelemetry.deviceName ?: bluetoothDeviceName ?: lastNonNullName ?: "Bluetooth Device"
+                  val rateStr = bluetoothTelemetry.sampleRateHz?.let { " / ${it / 1000}kHz" } ?: ""
+                  val bitsStr = bluetoothTelemetry.bitDepth?.let { " $it-bit" } ?: ""
+                  "$baseName • ${bluetoothTelemetry.codecName}$bitsStr$rateStr"
+                }
+                else -> bluetoothDeviceName ?: lastNonNullName ?: "Bluetooth Device"
+              }
               Column {
                 Spacer(Modifier.height(8.dp))
                 Row(
@@ -2806,7 +3082,7 @@ fun BottomSheetPlayer(
                         }
                       ),
                     contentDescription = null,
-                    tint = textButtonColor.copy(alpha = 0.7f),
+                    tint = if (bluetoothTelemetry.isHighRes) MaterialTheme.colorScheme.primary else textButtonColor.copy(alpha = 0.7f),
                     modifier =
                       Modifier.size(
                         when {
@@ -2818,9 +3094,9 @@ fun BottomSheetPlayer(
                   )
                   Spacer(Modifier.width(6.dp))
                   Text(
-                    text = nameToShow ?: "",
+                    text = nameToShow,
                     style = MaterialTheme.typography.labelSmall,
-                    color = textButtonColor.copy(alpha = 0.7f),
+                    color = if (bluetoothTelemetry.isHighRes) MaterialTheme.colorScheme.primary else textButtonColor.copy(alpha = 0.7f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                   )
@@ -2993,6 +3269,8 @@ fun BottomSheetPlayer(
         onToggleLyrics = { showInlineLyrics = !showInlineLyrics },
       )
     }
+
+
   }
 }
 

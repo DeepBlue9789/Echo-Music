@@ -4,6 +4,7 @@ import android.content.ContentResolver
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import java.io.IOException
 import java.security.MessageDigest
 import android.os.Bundle
 import android.os.SystemClock
@@ -32,9 +33,13 @@ import com.music.innertube.models.AlbumItem
 import com.music.innertube.models.ArtistItem
 import com.music.innertube.models.PlaylistItem
 import com.music.innertube.models.SongItem
+import com.music.innertube.models.WatchEndpoint
 import com.music.innertube.models.filterExplicit
+import com.music.innertube.models.filterPodcasts
 import com.music.innertube.models.filterVideoSongs
 import com.music.innertube.pages.HomePage
+import com.music.innertube.pages.PlaylistPage
+import com.music.innertube.pages.PodcastPage
 import dagger.hilt.android.qualifiers.ApplicationContext
 import echo.music.iad1tya.R
 import echo.music.iad1tya.constants.AutoplayOnAutomotiveConnectKey
@@ -43,21 +48,36 @@ import echo.music.iad1tya.constants.HideExplicitKey
 import echo.music.iad1tya.constants.HideVideoSongsKey
 import echo.music.iad1tya.constants.MediaSessionConstants
 import echo.music.iad1tya.constants.SongSortType
+import echo.music.iad1tya.constants.PodcastHidePlayedKey
 import echo.music.iad1tya.db.MusicDatabase
 import echo.music.iad1tya.db.entities.PlaylistEntity
 import echo.music.iad1tya.db.entities.Song
 import echo.music.iad1tya.extensions.toMediaItem
 import echo.music.iad1tya.extensions.toggleRepeatMode
+import echo.music.iad1tya.ui.component.EpisodeChapter
+import echo.music.iad1tya.ui.component.parseEpisodeChapters
+import echo.music.iad1tya.ui.component.toSongItem
 import echo.music.iad1tya.utils.AutomotiveArtwork.withAutomotiveArtworkUri
 import echo.music.iad1tya.models.toMediaMetadata
+import echo.music.iad1tya.utils.EpisodeDates
+import echo.music.iad1tya.utils.PodcastProgress
+import echo.music.iad1tya.utils.makeTimeString
+import echo.music.iad1tya.utils.PodcastShowStore
 import echo.music.iad1tya.utils.dataStore
 import echo.music.iad1tya.utils.get
 import echo.music.iad1tya.utils.reportException
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -66,6 +86,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 @androidx.annotation.OptIn(UnstableApi::class)
@@ -75,6 +96,7 @@ constructor(
   @ApplicationContext val context: Context,
   val database: MusicDatabase,
   val downloadUtil: DownloadUtil,
+  private val podcastShows: PodcastShowStore,
 ) : MediaLibrarySession.Callback {
   private val scope = CoroutineScope(Dispatchers.Main) + Job()
   lateinit var service: MusicService
@@ -105,6 +127,59 @@ constructor(
 
   /** Serializes the Home snapshot refresh so concurrent misses cannot race. */
   private val homeMutex = Mutex()
+
+  /** The session Auto browses, kept to tell it when the Home snapshot was refreshed. */
+  @Volatile private var librarySession: MediaLibrarySession? = null
+  private val liveUpdatesStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+  /**
+   * Tells Auto when lists that change with listening do: Auto keeps the children it loaded
+   * and re-reads a list only when notified, so History stayed as it was when first opened.
+   */
+  @OptIn(FlowPreview::class)
+  private fun startLiveUpdates() {
+    scope.launch {
+      database
+        .events()
+        .map { events -> events.take(HISTORY_SIZE).map { it.song.id } }
+        .distinctUntilChanged()
+        .drop(1)
+        .debounce(LIVE_UPDATE_DEBOUNCE_MS)
+        .collect { notifyChildrenChanged(MusicService.HISTORY) }
+    }
+    // Continue listening and the episodes' progress, in steps of 5%, so a playing episode
+    // (saved every few seconds) does not make Auto reload the tab all the time.
+    scope.launch {
+      PodcastProgress.entries
+        .map { entries ->
+          entries.values
+            .sortedByDescending { it.updatedAt }
+            .map { "${it.id}:${it.finished}:${it.dismissed}:${((it.fraction ?: 0f) * 20).toInt()}" }
+        }
+        .distinctUntilChanged()
+        .drop(1)
+        .debounce(LIVE_UPDATE_DEBOUNCE_MS)
+        .collect {
+          notifyChildrenChanged(MusicService.PODCAST)
+          savedPodcastIds().forEach { notifyChildrenChanged("${MusicService.YOUTUBE_PLAYLIST}/$it") }
+        }
+    }
+  }
+
+  private fun notifyChildrenChanged(parentId: String) {
+    val session = librarySession ?: return
+    scope.launch(Dispatchers.Main) {
+      runCatching { session.notifyChildrenChanged(parentId, Int.MAX_VALUE, null) }
+    }
+  }
+
+  /**
+   * Playlists found deleted (they opened to nothing), by id, with when that was seen. YouTube's
+   * feed can keep listing them for a while, so they stay filtered out of the snapshot.
+   */
+  private val deadPlaylistPrefs by lazy {
+    context.getSharedPreferences("auto_dead_playlists", Context.MODE_PRIVATE)
+  }
 
   /**
    * Package names [MediaSession.isAutomotiveController] and
@@ -185,6 +260,14 @@ constructor(
           .add(MediaSessionConstants.CommandToggleLibrary)
           .add(MediaSessionConstants.CommandToggleShuffle)
           .add(MediaSessionConstants.CommandToggleRepeatMode)
+          .add(MediaSessionConstants.CommandItemLike)
+          .add(MediaSessionConstants.CommandItemPlayNext)
+          .add(MediaSessionConstants.CommandItemDismiss)
+          .add(MediaSessionConstants.CommandItemFollow)
+          .add(MediaSessionConstants.CommandItemUnfollow)
+          .add(MediaSessionConstants.CommandEpisodeSkipBack)
+          .add(MediaSessionConstants.CommandEpisodeSkipForward)
+          .add(MediaSessionConstants.CommandEpisodeSpeed)
           .build()
       } else {
         connectionResult.availableSessionCommands
@@ -199,9 +282,23 @@ constructor(
       prefetchHome()
     }
 
+    // The platform session (read by Android Auto) mirrors the commands of the
+    // media notification controller. Without COMMAND_GET_TIMELINE it publishes no
+    // queue, so Auto drops its queue button: that screen opened at the top of the
+    // queue instead of the current song and kept jumping back while scrolling.
+    val availablePlayerCommands =
+      if (session.isMediaNotificationController(controller)) {
+        connectionResult.availablePlayerCommands
+          .buildUpon()
+          .remove(androidx.media3.common.Player.COMMAND_GET_TIMELINE)
+          .build()
+      } else {
+        connectionResult.availablePlayerCommands
+      }
+
     return MediaSession.ConnectionResult.accept(
       availableSessionCommands,
-      connectionResult.availablePlayerCommands,
+      availablePlayerCommands,
     )
   }
 
@@ -229,9 +326,44 @@ constructor(
         customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_START_RADIO ||
         customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_LIBRARY ||
         customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_SHUFFLE ||
-        customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_REPEAT_MODE
-    if (isToggleCommand && !isAuthorizedController(session, controller)) {
+        customCommand.customAction == MediaSessionConstants.ACTION_TOGGLE_REPEAT_MODE ||
+        customCommand.customAction == MediaSessionConstants.ACTION_EPISODE_SKIP_BACK ||
+        customCommand.customAction == MediaSessionConstants.ACTION_EPISODE_SKIP_FORWARD ||
+        customCommand.customAction == MediaSessionConstants.ACTION_EPISODE_SPEED
+    val isItemCommand =
+      customCommand.customAction == MediaSessionConstants.ACTION_ITEM_LIKE ||
+        customCommand.customAction == MediaSessionConstants.ACTION_ITEM_PLAY_NEXT ||
+        customCommand.customAction == MediaSessionConstants.ACTION_ITEM_DISMISS ||
+        customCommand.customAction == MediaSessionConstants.ACTION_ITEM_FOLLOW ||
+        customCommand.customAction == MediaSessionConstants.ACTION_ITEM_UNFOLLOW
+    val authorized = isAuthorizedController(session, controller)
+    if ((isToggleCommand || isItemCommand) && !authorized) {
       return Futures.immediateFuture(SessionResult(SessionResult.RESULT_ERROR_PERMISSION_DENIED))
+    }
+    // A button left on screen must not seek inside a song or change the podcast speed.
+    if (
+      customCommand.customAction in EPISODE_PLAYER_COMMANDS && !service.isCurrentEpisode
+    ) {
+      return Futures.immediateFuture(SessionResult(SessionError.ERROR_INVALID_STATE))
+    }
+    if (isItemCommand) {
+      val mediaId =
+        args.getString(MediaConstants.EXTRA_KEY_MEDIA_ID)
+          ?: return Futures.immediateFuture(SessionResult(SessionError.ERROR_BAD_VALUE))
+      return scope.future {
+        val handled =
+          when (customCommand.customAction) {
+            MediaSessionConstants.ACTION_ITEM_LIKE -> likeItem(mediaId)
+            MediaSessionConstants.ACTION_ITEM_FOLLOW -> setShowFollowed(mediaId, true)
+            MediaSessionConstants.ACTION_ITEM_UNFOLLOW -> setShowFollowed(mediaId, false)
+            MediaSessionConstants.ACTION_ITEM_DISMISS -> {
+              PodcastProgress.dismiss(mediaId.substringAfterLast("/"))
+              true
+            }
+            else -> playItemNext(mediaId)
+          }
+        SessionResult(if (handled) SessionResult.RESULT_SUCCESS else SessionError.ERROR_BAD_VALUE)
+      }
     }
     when (customCommand.customAction) {
       MediaSessionConstants.ACTION_TOGGLE_LIKE -> toggleLike()
@@ -240,8 +372,45 @@ constructor(
       MediaSessionConstants.ACTION_TOGGLE_SHUFFLE ->
         session.player.shuffleModeEnabled = !session.player.shuffleModeEnabled
       MediaSessionConstants.ACTION_TOGGLE_REPEAT_MODE -> session.player.toggleRepeatMode()
+      MediaSessionConstants.ACTION_EPISODE_SKIP_BACK ->
+        session.player.seekTo((session.player.currentPosition - PodcastProgress.SKIP_BACK_MS).coerceAtLeast(0))
+      MediaSessionConstants.ACTION_EPISODE_SKIP_FORWARD -> {
+        val target = session.player.currentPosition + PodcastProgress.SKIP_FORWARD_MS
+        val duration = session.player.duration
+        session.player.seekTo(if (duration > 0) target.coerceAtMost(duration) else target)
+      }
+      MediaSessionConstants.ACTION_EPISODE_SPEED -> PodcastProgress.cycleSpeed()
     }
     return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+  }
+
+  /** Song id at the end of a browse item's media id ("home_section/x/<id>"). */
+  private fun songIdOf(mediaId: String): String = mediaId.substringAfterLast('/')
+
+  /**
+   * Makes sure the song behind [mediaId] is in the database (online Home or
+   * search items may not be yet), so actions on it have a row to update.
+   */
+  private suspend fun ensureSongInDatabase(mediaId: String): Song? {
+    val songId = songIdOf(mediaId)
+    database.song(songId).first()?.let { return it }
+    withContext(Dispatchers.IO) { getMediaItem(mediaId) }
+    return database.song(songId).first()
+  }
+
+  /** Browse action: like / unlike the song behind [mediaId]. */
+  private suspend fun likeItem(mediaId: String): Boolean {
+    val song = ensureSongInDatabase(mediaId) ?: return false
+    service.toggleLike(song.id)
+    return true
+  }
+
+  /** Browse action: queue the song behind [mediaId] right after the current one. */
+  private suspend fun playItemNext(mediaId: String): Boolean {
+    val item = ensureSongInDatabase(mediaId)?.toMediaItem() ?: return false
+    // Through the service, which keeps shuffle order, duplicates and Cast in sync.
+    withContext(Dispatchers.Main) { service.playNext(listOf(item)) }
+    return true
   }
 
   /**
@@ -363,6 +532,9 @@ constructor(
     pageSize: Int,
     params: MediaLibraryService.LibraryParams?,
   ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+    // Always the current one: updates sent to a replaced session would be lost silently.
+    librarySession = session
+    if (liveUpdatesStarted.compareAndSet(false, true)) startLiveUpdates()
     val isAutomotive = isAutomotiveBrowser(browser)
     return scope.future(Dispatchers.IO) {
       // Automotive "Suggested" / "Recent" tabs arrive as LibraryParams flags on the
@@ -387,7 +559,10 @@ constructor(
       val children =
         when (parentId) {
           MusicService.ROOT -> rootChildren()
-          MusicService.HOME -> homeSections()
+          MusicService.HOME -> homeShelves()
+          MusicService.LIBRARY -> libraryChildren()
+          MusicService.HISTORY -> historySongs()
+          MusicService.PODCAST -> podcastTab()
           MusicService.SONG ->
             database.songsByCreateDateAsc().first().map { it.toMediaItem(parentId) }
           MusicService.ARTIST ->
@@ -485,10 +660,21 @@ constructor(
               parentId.startsWith("${MusicService.YOUTUBE_PLAYLIST}/") -> {
                 val playlistId = parentId.removePrefix("${MusicService.YOUTUBE_PLAYLIST}/")
                 try {
+                  val result = YouTube.playlist(playlistId)
+                  val page = result.getOrNull()
+                  // A playlist deleted from the library lingers in the saved Home
+                  // snapshot and opens to nothing; drop it from there. Network
+                  // failures say nothing about the playlist, so they keep it.
+                  if (page?.songs.isNullOrEmpty() && result.exceptionOrNull() !is IOException) {
+                    evictHomePlaylist(playlistId)
+                  }
+                  val episodes = page?.takeIf { it.playlist.isPodcast }?.let { showEpisodes(it) }
+                  if (episodes != null) {
+                    rememberDescriptions(episodes)
+                    episodes.forEach(PodcastProgress::mergeRemote)
+                  }
                   val songs =
-                    YouTube.playlist(playlistId)
-                      .getOrNull()
-                      ?.songs
+                    (episodes?.withoutHiddenEpisodes() ?: page?.songs)
                       ?.take(100)
                       ?.filterExplicit(context.dataStore.get(HideExplicitKey, false))
                       ?.filterVideoSongs(
@@ -632,15 +818,23 @@ constructor(
         val allLocalSongs =
           (localSongs + artistSongs + albumSongs + playlistSongs).distinctBy { it.id }
 
-        allLocalSongs.forEach { song ->
+        val libraryGroup = context.getString(R.string.filter_library)
+        allLocalSongs.take(SEARCH_LOCAL_LIMIT).forEach { song ->
           searchResults.add(
             song.toMediaItem(
               path = "${MusicService.SEARCH}/$query",
               isPlayable = true,
               isBrowsable = false
-            )
+            ).withGroupTitle(libraryGroup)
           )
         }
+
+        // Albums and playlists are searched alongside the songs, so Auto shows
+        // grouped results like the app instead of one flat list of songs.
+        val hideExplicit = context.dataStore.get(HideExplicitKey, false)
+        val albumsSearch = async { onlineCollections(query, YouTube.SearchFilter.FILTER_ALBUM, hideExplicit) }
+        val playlistsSearch =
+          async { onlineCollections(query, YouTube.SearchFilter.FILTER_FEATURED_PLAYLIST, hideExplicit) }
 
         try {
           val onlineResults =
@@ -668,11 +862,16 @@ constructor(
               database.query { insert(songItem.toMediaMetadata()) }
             } catch (e: Exception) {}
 
-            searchResults.add(songItem.toMediaItem("${MusicService.SEARCH}/$query"))
+            searchResults.add(
+              songItem.toMediaItem("${MusicService.SEARCH}/$query")
+                .withGroupTitle(context.getString(R.string.songs))
+            )
           }
         } catch (e: Exception) {
           reportException(e)
         }
+        searchResults += albumsSearch.await().map { it.withGroupTitle(context.getString(R.string.albums)) }
+        searchResults += playlistsSearch.await().map { it.withGroupTitle(context.getString(R.string.playlists)) }
 
         LibraryResult.ofItemList(
           withAutomotiveArtworkIfNeeded(isAutomotive, searchResults.paginate(page, pageSize)),
@@ -684,6 +883,39 @@ constructor(
       }
     }
   }
+
+  /**
+   * Albums or playlists matching [query] on YouTube, as browsable playlist nodes
+   * (albums open through their playlist id). Failures yield no results.
+   */
+  private suspend fun onlineCollections(
+    query: String,
+    filter: YouTube.SearchFilter,
+    hideExplicit: Boolean,
+  ): List<MediaItem> =
+    try {
+      YouTube.search(query, filter).getOrNull()?.items.orEmpty()
+        .filterExplicit(hideExplicit)
+        .mapNotNull { item ->
+          when (item) {
+            is PlaylistItem -> item.toBrowsableMediaItem()
+            is AlbumItem ->
+              browsableMediaItem(
+                "${MusicService.YOUTUBE_PLAYLIST}/${item.playlistId}",
+                item.title,
+                item.artists?.joinToString { it.name },
+                item.thumbnail.toUri(),
+                MediaMetadata.MEDIA_TYPE_ALBUM,
+                singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
+              )
+            else -> null
+          }
+        }
+        .take(SEARCH_COLLECTION_LIMIT)
+    } catch (e: Exception) {
+      reportException(e)
+      emptyList()
+    }
 
   override fun onSetMediaItems(
     mediaSession: MediaSession,
@@ -697,6 +929,34 @@ constructor(
       val path = mediaItems.firstOrNull()?.mediaId?.split("/") ?: return@future defaultResult
 
       when (path.firstOrNull()) {
+        MusicService.PODCAST -> {
+          val group = path.getOrNull(1) ?: return@future defaultResult
+          val episodeId = path.getOrNull(2) ?: return@future defaultResult
+          if (group == PODCAST_CHAPTER) {
+            val episode = PodcastProgress.get(episodeId)?.toSongItem() ?: return@future defaultResult
+            return@future MediaItemsWithStartPosition(
+              listOf(episode.toMediaItem()),
+              0,
+              path.getOrNull(3)?.toLongOrNull() ?: C.TIME_UNSET,
+            )
+          }
+          val episodes = podcastGroupEpisodes(group)
+          if (episodes.isEmpty()) return@future defaultResult
+          // The group can have changed since Auto listed it; never play another episode instead.
+          val index = episodes.indexOfFirst { it.id == episodeId }
+          if (index == -1) return@future defaultResult
+          // Episodes in progress resume where they were left (see MusicService).
+          MediaItemsWithStartPosition(episodes.map { it.toMediaItem() }, index, C.TIME_UNSET)
+        }
+        MusicService.HISTORY -> {
+          val songId = path.getOrNull(1) ?: return@future defaultResult
+          val songs = recentlyPlayedSongs()
+          MediaItemsWithStartPosition(
+            songs.map { it.toMediaItem() },
+            songs.indexOfFirst { it.id == songId }.takeIf { it != -1 } ?: 0,
+            startPositionMs
+          )
+        }
         MusicService.SONG -> {
           val songId = path.getOrNull(1) ?: return@future defaultResult
           val allSongs = database.songsByCreateDateAsc().first()
@@ -776,10 +1036,38 @@ constructor(
           val songId = path.getOrNull(2) ?: return@future defaultResult
           val playlistId = path.getOrNull(1) ?: return@future defaultResult
 
+          // Mixes ("RD…", e.g. Mixtapes for you) are radios: started like YouTube Music does,
+          // through the watch endpoint, they come in a fresh personalized order instead of
+          // the same fixed list from its first song every time.
+          if (playlistId.startsWith("RD")) {
+            val startId = songId.takeUnless { it == MusicService.SHUFFLE_ACTION }
+            val radio =
+              try {
+                YouTube.next(WatchEndpoint(videoId = startId, playlistId = playlistId))
+                  .getOrNull()
+                  ?.items
+              } catch (e: Exception) {
+                reportException(e)
+                null
+              }
+            if (!radio.isNullOrEmpty()) {
+              val items = radio.map { it.toMediaItem() }
+              return@future MediaItemsWithStartPosition(
+                if (startId == null) items.shuffled() else items,
+                if (startId == null) 0 else radio.indexOfFirst { it.id == startId }.coerceAtLeast(0),
+                C.TIME_UNSET,
+              )
+            }
+          }
+
           val songs =
             try {
-              YouTube.playlist(playlistId).getOrNull()?.songs?.map { it.toMediaItem() }
-                ?: emptyList()
+              // A show lists its newest episode first; what follows an episode is the next one.
+              YouTube.playlist(playlistId).getOrNull()?.let { page ->
+                (if (page.playlist.isPodcast) showEpisodes(page).withoutHiddenEpisodes().asReversed()
+                else page.songs)
+                  .map { it.toMediaItem() }
+              } ?: emptyList()
             } catch (e: Exception) {
               reportException(e)
               return@future defaultResult
@@ -939,6 +1227,11 @@ constructor(
       )
       .build()
 
+  /**
+   * The tabs Android Auto shows across the top. Auto displays at most four, so
+   * Songs / Artists / Albums are grouped under Library (the fifth root item used
+   * to be dropped).
+   */
   private fun rootChildren() =
     listOf(
       browsableMediaItem(
@@ -948,29 +1241,14 @@ constructor(
         drawableUri(R.drawable.home_filled),
         MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
         singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM,
+        browsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
       ),
       browsableMediaItem(
-        MusicService.SONG,
-        context.getString(R.string.songs),
+        MusicService.LIBRARY,
+        context.getString(R.string.filter_library),
         null,
-        drawableUri(R.drawable.music_note),
+        drawableUri(R.drawable.library_music),
         MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
-        singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM,
-      ),
-      browsableMediaItem(
-        MusicService.ARTIST,
-        context.getString(R.string.artists),
-        null,
-        drawableUri(R.drawable.artist),
-        MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS,
-        singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM,
-      ),
-      browsableMediaItem(
-        MusicService.ALBUM,
-        context.getString(R.string.albums),
-        null,
-        drawableUri(R.drawable.album),
-        MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
         singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM,
       ),
       browsableMediaItem(
@@ -980,8 +1258,375 @@ constructor(
         drawableUri(R.drawable.queue_music),
         MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS,
         singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM,
+        browsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
+      ),
+      browsableMediaItem(
+        MusicService.PODCAST,
+        context.getString(R.string.filter_podcasts),
+        null,
+        drawableUri(R.drawable.mic),
+        MediaMetadata.MEDIA_TYPE_FOLDER_PODCASTS,
+        singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_GRID_ITEM,
       ),
     )
+
+  /** Contents of the Library tab; History lives here so Podcasts can be a tab of its own. */
+  private fun libraryChildren() =
+    listOf(
+      browsableMediaItem(
+        MusicService.SONG,
+        context.getString(R.string.songs),
+        null,
+        drawableUri(R.drawable.music_note),
+        MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+      ),
+      browsableMediaItem(
+        MusicService.ARTIST,
+        context.getString(R.string.artists),
+        null,
+        drawableUri(R.drawable.artist),
+        MediaMetadata.MEDIA_TYPE_FOLDER_ARTISTS,
+      ),
+      browsableMediaItem(
+        MusicService.ALBUM,
+        context.getString(R.string.albums),
+        null,
+        drawableUri(R.drawable.album),
+        MediaMetadata.MEDIA_TYPE_FOLDER_ALBUMS,
+        browsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
+      ),
+      browsableMediaItem(
+        MusicService.HISTORY,
+        context.getString(R.string.history),
+        null,
+        drawableUri(R.drawable.history),
+        MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+      ),
+    )
+
+  /**
+   * The Podcasts tab: episodes in progress, followed shows and YouTube's podcast
+   * recommendations, as titled groups. Episodes carry their group in the media id
+   * ([MusicService.PODCAST]/group/videoId), so playing one queues the rest of its group.
+   */
+  private suspend fun podcastTab(): List<MediaItem> {
+    val continueTitle = context.getString(R.string.continue_listening)
+    val followedTitle = context.getString(R.string.your_podcasts)
+    val continuing =
+      PodcastProgress.inProgress().take(PODCAST_GROUP_SIZE).map {
+        it.toSongItem()
+          .toMediaItem("${MusicService.PODCAST}/$PODCAST_CONTINUE")
+          .withGroupTitle(continueTitle)
+          .withSupportedCommands(MediaSessionConstants.ACTION_ITEM_DISMISS)
+      }
+    val followed =
+      savedPodcasts().map {
+        it.withGroupTitle(followedTitle).withSupportedCommands(MediaSessionConstants.ACTION_ITEM_UNFOLLOW)
+      }
+    val followedIds = savedPodcastIds().toSet()
+    val newTitle = context.getString(R.string.new_episodes)
+    val latest =
+      newEpisodes().take(PODCAST_GROUP_SIZE).map {
+        it.toMediaItem("${MusicService.PODCAST}/$PODCAST_NEW").withGroupTitle(newTitle)
+      }
+    val recommended =
+      podcastRecommendations().flatMap { section ->
+        val parentId = "${MusicService.PODCAST}/${homeSectionKey(section)}"
+        section.items
+          .mapNotNull { item ->
+            when (item) {
+              is SongItem -> item.toMediaItem(parentId)
+              is PlaylistItem ->
+                item.toBrowsableMediaItem().withSupportedCommands(
+                  if (item.id in followedIds) MediaSessionConstants.ACTION_ITEM_UNFOLLOW
+                  else MediaSessionConstants.ACTION_ITEM_FOLLOW
+                )
+              else -> null
+            }
+          }
+          .take(HOME_SHELF_PREVIEW_SIZE)
+          .map { it.withGroupTitle(section.title) }
+      }
+    return currentEpisodeChapters() + continuing + followed + latest + recommended
+  }
+
+  private fun MediaItem.withSupportedCommands(vararg commands: String): MediaItem =
+    buildUpon()
+      .setMediaMetadata(mediaMetadata.buildUpon().setSupportedCommands(commands.toList()).build())
+      .build()
+
+  /** Descriptions of episodes seen so far, which hold their chapters. */
+  private val episodeDescriptions = java.util.concurrent.ConcurrentHashMap<String, String>()
+
+  private fun rememberDescriptions(episodes: List<SongItem>) {
+    episodes.forEach { episode ->
+      episode.description?.let { episodeDescriptions[episode.id] = it }
+    }
+  }
+
+  /**
+   * The chapters of the playing episode, each playing from its start. Auto has no room for
+   * details of its own, so they lead the Podcasts tab while the episode plays.
+   */
+  private suspend fun currentEpisodeChapters(): List<MediaItem> {
+    val id =
+      withContext(Dispatchers.Main) { librarySession?.player?.currentMediaItem?.mediaId }
+        ?: return emptyList()
+    val progress = PodcastProgress.get(id) ?: return emptyList()
+    if (progress.finished) return emptyList()
+    val showId = progress.showBrowseId?.takeIf(PodcastPage::isShowBrowseId)?.let(PodcastPage::showId)
+    if (!episodeDescriptions.containsKey(id) && showId != null) {
+      // Only after an answer: a failed lookup is tried again next time.
+      YouTube.podcast(showId).getOrNull()?.songs?.let { episodes ->
+        rememberDescriptions(episodes)
+        episodeDescriptions.putIfAbsent(id, "")
+      }
+    }
+    val title = context.getString(R.string.episode_chapters)
+    return parseEpisodeChapters(episodeDescriptions[id]).map { chapter ->
+      chapterMediaItem(id, progress.thumbnailUrl, chapter).withGroupTitle(title)
+    }
+  }
+
+  private fun chapterMediaItem(episodeId: String, thumbnailUrl: String?, chapter: EpisodeChapter) =
+    MediaItem.Builder()
+      .setMediaId("${MusicService.PODCAST}/$PODCAST_CHAPTER/$episodeId/${chapter.startMs}")
+      .setMediaMetadata(
+        MediaMetadata.Builder()
+          .setTitle(chapter.title)
+          .setSubtitle(makeTimeString(chapter.startMs))
+          .setArtworkUri(thumbnailUrl?.toUri())
+          .setIsPlayable(true)
+          .setIsBrowsable(false)
+          .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+          .setExtras(playableMediaItemExtras())
+          .build()
+      )
+      .build()
+
+  /** A show's episodes across its pages, up to [SHOW_EPISODES_LIMIT], each naming its show. */
+  private suspend fun showEpisodes(page: PlaylistPage): List<SongItem> {
+    var episodes = page.songs
+    var continuation = page.songsContinuation
+    while (continuation != null && episodes.size < SHOW_EPISODES_LIMIT) {
+      val more = YouTube.playlistContinuation(continuation).getOrNull() ?: break
+      episodes = episodes + more.songs
+      continuation = more.continuation
+    }
+    val show =
+      com.music.innertube.models.Artist(
+        name = page.playlist.title,
+        id = PodcastPage.showBrowseId(page.playlist.id),
+      )
+    return episodes.map { if (it.artists.isEmpty()) it.copy(artists = listOf(show)) else it }
+  }
+
+  @Volatile private var cachedNewEpisodes: List<SongItem> = emptyList()
+  @Volatile private var newEpisodesAtMs = 0L
+  @Volatile private var newEpisodesShows: Set<String> = emptySet()
+
+  /** The latest episodes of the followed shows, newest first, as on the phone. */
+  private suspend fun newEpisodes(): List<SongItem> {
+    val showIds = savedPodcastIds().toSet()
+    if (showIds.isEmpty()) return emptyList()
+    val now = SystemClock.elapsedRealtime()
+    if (
+      showIds == newEpisodesShows &&
+        cachedNewEpisodes.isNotEmpty() &&
+        now - newEpisodesAtMs < PODCAST_RECOMMENDATIONS_TTL_MS
+    ) {
+      return cachedNewEpisodes
+    }
+    val wallNow = System.currentTimeMillis()
+    val episodes =
+      withTimeoutOrNull(HOME_FIRST_PAGE_TIMEOUT_MS) {
+        coroutineScope {
+          showIds
+            .take(MAX_NEW_EPISODE_SHOWS)
+            .map { id ->
+              async(Dispatchers.IO) {
+                YouTube.podcast(id).getOrNull()?.songs?.take(NEW_EPISODES_PER_SHOW).orEmpty()
+              }
+            }
+            .awaitAll()
+            .flatten()
+            .sortedByDescending { EpisodeDates.parse(it.publishedText, wallNow) ?: 0L }
+        }
+      }
+    if (!episodes.isNullOrEmpty()) {
+      rememberDescriptions(episodes)
+      episodes.forEach(PodcastProgress::mergeRemote)
+      cachedNewEpisodes = episodes
+      newEpisodesAtMs = now
+      newEpisodesShows = showIds
+    } else if (showIds != newEpisodesShows) {
+      // Not the list of the shows followed now.
+      cachedNewEpisodes = emptyList()
+    }
+    return cachedNewEpisodes
+  }
+
+  /** Follows or unfollows a show from its media id ("…/showId"), like the phone's button. */
+  private suspend fun setShowFollowed(mediaId: String, followed: Boolean): Boolean {
+    val showId = mediaId.substringAfterLast("/")
+    val existing = database.playlistByBrowseId(showId).first()
+    val page = if (existing == null) YouTube.podcast(showId).getOrNull()?.playlist else null
+    if (existing == null && page == null) return false
+    if (followed) podcastShows.add(showId)
+    database.withTransaction {
+      when {
+        existing == null ->
+          if (followed && page != null) {
+            insert(
+              PlaylistEntity(
+                  name = page.title,
+                  browseId = showId,
+                  thumbnailUrl = page.thumbnail,
+                  isEditable = false,
+                )
+                .toggleLike()
+            )
+          }
+        (existing.playlist.bookmarkedAt != null) != followed ->
+          update(existing.playlist.toggleLike())
+      }
+    }
+    notifyChildrenChanged(MusicService.PODCAST)
+    return true
+  }
+
+  /** The episodes of a [podcastTab] group, as a playable queue. */
+  private suspend fun podcastGroupEpisodes(group: String): List<SongItem> =
+    if (group == PODCAST_CONTINUE) {
+      PodcastProgress.inProgress().map { it.toSongItem() }
+    } else if (group == PODCAST_NEW) {
+      newEpisodes()
+    } else {
+      podcastRecommendations()
+        .firstOrNull { homeSectionKey(it) == group }
+        ?.items
+        ?.filterIsInstance<SongItem>()
+        .orEmpty()
+    }
+
+  @Volatile private var cachedPodcastRecommendations: List<HomePage.Section> = emptyList()
+  @Volatile private var podcastRecommendationsAtMs = 0L
+
+  /**
+   * The shelves of YouTube's Podcast chip (shows and episodes), refreshed every
+   * [PODCAST_RECOMMENDATIONS_TTL_MS]. The chip is found by its title, which reads
+   * "Podcast(s)" in the languages YouTube Music uses.
+   */
+  private suspend fun podcastRecommendations(): List<HomePage.Section> {
+    val now = SystemClock.elapsedRealtime()
+    if (
+      cachedPodcastRecommendations.isNotEmpty() &&
+        now - podcastRecommendationsAtMs < PODCAST_RECOMMENDATIONS_TTL_MS
+    ) {
+      return cachedPodcastRecommendations
+    }
+    val sections =
+      try {
+        withTimeoutOrNull(HOME_FIRST_PAGE_TIMEOUT_MS) {
+          val chip =
+            YouTube.home().getOrNull()?.chips?.firstOrNull {
+              it.title.contains("podcast", ignoreCase = true)
+            } ?: return@withTimeoutOrNull null
+          YouTube.home(
+              browseId = chip.endpoint?.browseId ?: "FEmusic_home",
+              params = chip.endpoint?.params,
+            )
+            .getOrNull()
+            ?.sections
+            ?.mapNotNull { section ->
+              section.items
+                .filter {
+                  (it is SongItem && it.isPodcastEpisode) || (it is PlaylistItem && it.isPodcast)
+                }
+                .takeIf { it.isNotEmpty() }
+                ?.let { section.copy(items = it) }
+            }
+        }
+      } catch (e: Exception) {
+        reportException(e)
+        null
+      }
+    if (!sections.isNullOrEmpty()) {
+      cachedPodcastRecommendations = sections
+      podcastRecommendationsAtMs = now
+    }
+    return cachedPodcastRecommendations
+  }
+
+  private suspend fun savedPodcastIds(): List<String> {
+    val ids = podcastShows.ids.value
+    return database.playlistsByCreateDateAsc().first().mapNotNull { playlist ->
+      playlist.playlist.browseId?.takeIf { it in ids && playlist.playlist.bookmarkedAt != null }
+    }
+  }
+
+  /** Followed podcast shows; each opens its episodes through the YouTube playlist path. */
+  private suspend fun savedPodcasts(): List<MediaItem> {
+    val ids = podcastShows.ids.value
+    return database.playlistsByCreateDateAsc().first().mapNotNull { playlist ->
+      if (playlist.playlist.bookmarkedAt == null) return@mapNotNull null
+      val browseId = playlist.playlist.browseId?.takeIf { it in ids } ?: return@mapNotNull null
+      browsableMediaItem(
+        "${MusicService.YOUTUBE_PLAYLIST}/$browseId",
+        playlist.playlist.name,
+        context.getString(R.string.podcast),
+        (playlist.playlist.thumbnailUrl ?: playlist.thumbnails.firstOrNull())?.toUri(),
+        MediaMetadata.MEDIA_TYPE_PODCAST,
+        singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
+      )
+    }
+  }
+
+  /** The most recently played songs, newest first, without repeats. */
+  private suspend fun recentlyPlayedSongs(): List<Song> =
+    database.events().first().map { it.song }.distinctBy { it.id }.take(HISTORY_SIZE)
+
+  private suspend fun historySongs(): List<MediaItem> =
+    recentlyPlayedSongs().map { it.toMediaItem(MusicService.HISTORY) }
+
+  /**
+   * The Home tab as one page, like the phone app: each YouTube shelf becomes a
+   * titled group of its first songs and playlists. Songs keep their shelf in the
+   * media id, so playing one queues the rest of that shelf.
+   */
+  private suspend fun homeShelves(): List<MediaItem> =
+    try {
+      val home = youtubeHome()
+        ?.filterExplicit(context.dataStore.get(HideExplicitKey, false))
+        ?.filterVideoSongs(
+          context.dataStore.get(HideVideoSongsKey, false) ||
+            context.dataStore.get(echo.music.iad1tya.constants.DataSaverEnabledKey, false)
+        )
+      home?.sections.orEmpty().flatMap { section ->
+        val parentId = "${MusicService.HOME_SECTION}/${homeSectionKey(section)}"
+        section.items
+          .mapNotNull { item ->
+            when (item) {
+              is SongItem -> item.toMediaItem(parentId)
+              is PlaylistItem -> item.toBrowsableMediaItem()
+              else -> null
+            }
+          }
+          .take(HOME_SHELF_PREVIEW_SIZE)
+          .map { it.withGroupTitle(section.title) }
+      }
+    } catch (e: Exception) {
+      reportException(e)
+      emptyList()
+    }
+
+  /** Puts [this] under a titled group header in Android Auto lists. */
+  private fun MediaItem.withGroupTitle(title: String): MediaItem {
+    val extras = Bundle(mediaMetadata.extras ?: Bundle()).apply {
+      putString(MediaConstants.EXTRAS_KEY_CONTENT_STYLE_GROUP_TITLE, title)
+    }
+    return buildUpon().setMediaMetadata(mediaMetadata.buildUpon().setExtras(extras).build()).build()
+  }
 
   private fun artistItemStyle(isAutomotive: Boolean) =
     if (isAutomotive) {
@@ -1056,7 +1701,7 @@ constructor(
       }
     if (sections.isEmpty()) return
     val keptKeys = sections.map(::homeSectionKey).toSet()
-    cachedHome = HomePage(chips = null, sections = sections)
+    cachedHome = HomePage(chips = null, sections = sections).withoutDeadPlaylists()
     homeLastSeenMs = snapshot.lastSeenMs.filterKeys { it in keptKeys }
     cachedHomeFromDisk = true
   }
@@ -1090,8 +1735,8 @@ constructor(
       useHomeAccount(account)
       if (isCachedHomeFresh()) return cachedHome
     }
-    val fetched = fetchFullHome()
-    return homeMutex.withLock {
+    val fetched = fetchFullHome()?.withoutDeadPlaylists()
+    val refreshed = homeMutex.withLock {
       useHomeAccount(account)
       if (fetched == null || fetched.sections.isEmpty()) {
         // Offline or YouTube failing: the restored snapshot still gives Auto its shelves.
@@ -1120,6 +1765,49 @@ constructor(
       homeStore.save(account, merged.sections, ::homeSectionKey, homeLastSeenMs)
       merged
     }
+    if (refreshed != null && fetched != null && fetched.sections.isNotEmpty()) notifyHomeChanged()
+    return refreshed
+  }
+
+  /**
+   * Tells Auto the Home shelves changed. The snapshot restored at startup is served at once and
+   * refreshed in the background; without this Auto kept showing the restored, older content
+   * (deleted playlists, yesterday's mixes) until it happened to browse again.
+   */
+  private fun notifyHomeChanged() {
+    val session = librarySession ?: return
+    val sections = cachedHome?.sections.orEmpty()
+    scope.launch(Dispatchers.Main) {
+      runCatching {
+        session.notifyChildrenChanged(MusicService.HOME, Int.MAX_VALUE, null)
+        session.notifyChildrenChanged(MusicService.PLAYLIST, Int.MAX_VALUE, null)
+        sections.forEach {
+          session.notifyChildrenChanged(
+            "${MusicService.HOME_SECTION}/${homeSectionKey(it)}",
+            Int.MAX_VALUE,
+            null,
+          )
+        }
+      }
+    }
+  }
+
+  private fun HomePage.withoutDeadPlaylists(): HomePage {
+    val now = System.currentTimeMillis()
+    val dead =
+      deadPlaylistPrefs.all.mapNotNull { (id, at) ->
+        id.takeIf { now - ((at as? Long) ?: 0L) < DEAD_PLAYLIST_MAX_AGE_MS }
+      }.toSet()
+    if (dead.isEmpty()) return this
+    return copy(
+      sections =
+        sections.mapNotNull { section ->
+          section.items
+            .filterNot { it is PlaylistItem && it.id in dead }
+            .takeIf { it.isNotEmpty() }
+            ?.let { section.copy(items = it) }
+        }
+    )
   }
 
   /**
@@ -1151,7 +1839,12 @@ constructor(
         pages++
       }
     }
-    return first.copy(sections = sections.distinctBy(::homeSectionKey), continuation = null)
+    // Podcasts are browsed from the Library's Podcast folder, not mixed into Home.
+    val musicSections =
+      sections.mapNotNull { section ->
+        section.items.filterPodcasts().takeIf { it.isNotEmpty() }?.let { section.copy(items = it) }
+      }
+    return first.copy(sections = musicSections.distinctBy(::homeSectionKey), continuation = null)
   }
 
   /**
@@ -1182,6 +1875,34 @@ constructor(
     val sections = youtubeHome()?.sections ?: return null
     return sections.firstOrNull { homeSectionKey(it) == sectionId }
       ?: sectionId.toIntOrNull()?.let { sections.getOrNull(it) }
+  }
+
+  /**
+   * Removes [playlistId] from the Home snapshot, in memory and on disk, and keeps it out of later
+   * fetches for a while.
+   */
+  private suspend fun evictHomePlaylist(playlistId: String) {
+    deadPlaylistPrefs.edit().putLong(playlistId, System.currentTimeMillis()).apply()
+    homeMutex.withLock {
+      val home = cachedHome ?: return
+      val account = homeAccount ?: return
+      var changed = false
+      val sections =
+        home.sections.mapNotNull { section ->
+          val items = section.items.filterNot { it is PlaylistItem && it.id == playlistId }
+          when {
+            items.size == section.items.size -> section
+            else -> {
+              changed = true
+              section.copy(items = items).takeIf { items.isNotEmpty() }
+            }
+          }
+        }
+      if (!changed) return
+      cachedHome = home.copy(sections = sections)
+      homeStore.save(account, sections, ::homeSectionKey, homeLastSeenMs)
+    }
+    notifyHomeChanged()
   }
 
   /** Fetches Home ahead of the first browse so Auto does not wait for every page. */
@@ -1316,9 +2037,31 @@ constructor(
           }
         }
       }
+      MusicService.LIBRARY -> rootChildren().firstOrNull { it.mediaId == MusicService.LIBRARY }
+      MusicService.PODCAST ->
+        if (path.size == 1) {
+          rootChildren().firstOrNull { it.mediaId == MusicService.PODCAST }
+        } else if (path[1] == PODCAST_CHAPTER) {
+          val episodeId = path.getOrNull(2) ?: return null
+          val startMs = path.getOrNull(3)?.toLongOrNull() ?: return null
+          parseEpisodeChapters(episodeDescriptions[episodeId])
+            .firstOrNull { it.startMs == startMs }
+            ?.let { chapterMediaItem(episodeId, PodcastProgress.get(episodeId)?.thumbnailUrl, it) }
+        } else {
+          val episodeId = path.last()
+          podcastGroupEpisodes(path[1])
+            .firstOrNull { it.id == episodeId }
+            ?.toMediaItem(mediaId.removeSuffix("/$episodeId"))
+        }
+      MusicService.HISTORY ->
+        if (path.size == 1) {
+          libraryChildren().firstOrNull { it.mediaId == MusicService.HISTORY }
+        } else {
+          database.song(path[1]).first()?.toMediaItem(MusicService.HISTORY)
+        }
       MusicService.SONG -> {
         if (path.size == 1) {
-          rootChildren().first { it.mediaId == MusicService.SONG }
+          libraryChildren().first { it.mediaId == MusicService.SONG }
         } else {
           database.song(path[1]).first()?.toMediaItem(MusicService.SONG)
         }
@@ -1430,11 +2173,13 @@ constructor(
     songId: String,
   ): MediaItem? =
     try {
-      YouTube.playlist(playlistId)
+      val item = YouTube.playlist(playlistId)
         .getOrNull()
         ?.songs
-        ?.firstOrNull { it.id == songId }
-        ?.toMediaItem("${MusicService.YOUTUBE_PLAYLIST}/$playlistId")
+        ?.firstOrNull { it.id == songId } ?: return null
+      // Stored so actions on the song (like, play next) find its row.
+      try { database.query { insert(item.toMediaMetadata()) } } catch (_: Exception) {}
+      item.toMediaItem("${MusicService.YOUTUBE_PLAYLIST}/$playlistId")
     } catch (e: Exception) {
       reportException(e)
       null
@@ -1491,6 +2236,14 @@ constructor(
       singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_GRID_ITEM,
     )
 
+  /** A show's episodes without the played ones, when the user chose to hide them. */
+  private fun List<SongItem>.withoutHiddenEpisodes(): List<SongItem> =
+    if (context.dataStore.get(PodcastHidePlayedKey, false)) {
+      filterNot { PodcastProgress.get(it.id)?.finished == true }
+    } else {
+      this
+    }
+
   private fun PlaylistItem.toBrowsableMediaItem() =
     browsableMediaItem(
       "${MusicService.YOUTUBE_PLAYLIST}/$id",
@@ -1523,6 +2276,7 @@ constructor(
     iconUri: Uri?,
     mediaType: Int = MediaMetadata.MEDIA_TYPE_MUSIC,
     singleItemStyle: Int = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_CATEGORY_LIST_ITEM,
+    browsableStyle: Int = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
   ) =
     MediaItem.Builder()
       .setMediaId(id)
@@ -1537,7 +2291,7 @@ constructor(
           .setMediaType(mediaType)
           .setExtras(
             contentStyleExtras(
-              browsableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
+              browsableStyle = browsableStyle,
               playableStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
               singleItemStyle = singleItemStyle,
             )
@@ -1562,7 +2316,8 @@ constructor(
           .setIsPlayable(isPlayable)
           .setIsBrowsable(isBrowsable)
           .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-          .setExtras(playableMediaItemExtras())
+          .setExtras(songExtras(id, song.explicit))
+          .apply { if (isPlayable) setSupportedCommands(SONG_ACTIONS) }
           .build(),
       )
       .build()
@@ -1580,10 +2335,42 @@ constructor(
           .setIsPlayable(true)
           .setIsBrowsable(false)
           .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-          .setExtras(playableMediaItemExtras())
+          .setExtras(songExtras(id, explicit).withEpisodeCompletion(id, isPodcastEpisode))
+          .setSupportedCommands(SONG_ACTIONS)
           .build()
       )
       .build()
+
+  /**
+   * Android Auto draws a progress bar (or a "played" mark) for items carrying a completion
+   * status; set it on podcast episodes from this device's listening progress.
+   */
+  private fun Bundle.withEpisodeCompletion(id: String, isEpisode: Boolean): Bundle {
+    val progress = PodcastProgress.get(id)
+    if (!isEpisode && progress == null) return this
+    when {
+      progress?.finished == true ->
+        putInt(
+          MediaConstants.EXTRAS_KEY_COMPLETION_STATUS,
+          MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_FULLY_PLAYED,
+        )
+      progress?.isInProgress == true -> {
+        putInt(
+          MediaConstants.EXTRAS_KEY_COMPLETION_STATUS,
+          MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_PARTIALLY_PLAYED,
+        )
+        progress.fraction?.let {
+          putDouble(MediaConstants.EXTRAS_KEY_COMPLETION_PERCENTAGE, it.toDouble())
+        }
+      }
+      else ->
+        putInt(
+          MediaConstants.EXTRAS_KEY_COMPLETION_STATUS,
+          MediaConstants.EXTRAS_VALUE_COMPLETION_STATUS_NOT_PLAYED,
+        )
+    }
+    return this
+  }
 
   /**
    * Ensures consistent content-style hints for automotive browsing responses.
@@ -1624,6 +2411,20 @@ constructor(
       .build()
   }
 
+  /**
+   * Song extras: list style plus the badges Auto draws on the row (explicit,
+   * downloaded).
+   */
+  private fun songExtras(songId: String, explicit: Boolean) =
+    playableMediaItemExtras().apply {
+      if (explicit) {
+        putLong(MediaConstants.EXTRAS_KEY_IS_EXPLICIT, MediaConstants.EXTRAS_VALUE_ATTRIBUTE_PRESENT)
+      }
+      if (downloadUtil.downloads.value[songId]?.state == Download.STATE_COMPLETED) {
+        putLong(MediaConstants.EXTRAS_KEY_DOWNLOAD_STATUS, MediaConstants.EXTRAS_VALUE_STATUS_DOWNLOADED)
+      }
+    }
+
   private fun playableMediaItemExtras() =
     contentStyleExtras(
       singleItemStyle = MediaConstants.EXTRAS_VALUE_CONTENT_STYLE_LIST_ITEM,
@@ -1658,9 +2459,41 @@ constructor(
     const val HOME_CACHE_TTL_MS = 5 * 60 * 1000L
     const val HOME_MAX_PAGES = 6
     const val HOME_FIRST_PAGE_TIMEOUT_MS = 10_000L
-    /** A shelf YouTube has not returned for this long is dropped from the snapshot. */
-    const val HOME_SECTION_MAX_AGE_MS = 14L * 24 * 60 * 60 * 1000
+    /**
+     * A shelf YouTube has not returned for this long is dropped from the snapshot. Short, so
+     * shelves (and the playlists in them) follow the feed instead of outliving it by weeks.
+     */
+    const val HOME_SECTION_MAX_AGE_MS = 24L * 60 * 60 * 1000
+    /** How long a playlist found deleted stays out of the Home snapshot. */
+    const val DEAD_PLAYLIST_MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000
     const val HOME_CONTINUATION_TIMEOUT_MS = 12_000L
     const val SUGGESTED_SECTION_ID = "suggested"
+    /** Items of each shelf shown on the Home tab; the full shelf plays from any of them. */
+    const val HOME_SHELF_PREVIEW_SIZE = 8
+    /** Lets a burst of changes (a skip writes several events) reach Auto as one update. */
+    const val LIVE_UPDATE_DEBOUNCE_MS = 2_000L
+    /** Group of episodes in progress in the Podcasts tab. */
+    const val PODCAST_CONTINUE = "continue"
+    /** Group of the latest episodes of the followed shows in the Podcasts tab. */
+    const val PODCAST_NEW = "new"
+    /** Media id part of a chapter of the playing episode: …/chapter/episodeId/startMs. */
+    const val PODCAST_CHAPTER = "chapter"
+    const val MAX_NEW_EPISODE_SHOWS = 10
+    const val NEW_EPISODES_PER_SHOW = 3
+    /** Episodes loaded when a show is opened from Android Auto. */
+    const val SHOW_EPISODES_LIMIT = 100
+    val EPISODE_PLAYER_COMMANDS =
+      setOf(
+        MediaSessionConstants.ACTION_EPISODE_SKIP_BACK,
+        MediaSessionConstants.ACTION_EPISODE_SKIP_FORWARD,
+        MediaSessionConstants.ACTION_EPISODE_SPEED,
+      )
+    const val PODCAST_GROUP_SIZE = 5
+    const val PODCAST_RECOMMENDATIONS_TTL_MS = 30 * 60 * 1000L
+    const val HISTORY_SIZE = 50
+    const val SEARCH_LOCAL_LIMIT = 20
+    const val SEARCH_COLLECTION_LIMIT = 6
+    /** Browse actions offered on every playable song. */
+    val SONG_ACTIONS = listOf(MediaSessionConstants.ACTION_ITEM_LIKE, MediaSessionConstants.ACTION_ITEM_PLAY_NEXT)
   }
 }

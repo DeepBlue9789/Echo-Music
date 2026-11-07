@@ -183,6 +183,17 @@ fun SettingsScreen(
         )
       }
 
+      if ("echo wrapped".contains(searchLower) || "wrapped".contains(searchLower) || "replay".contains(searchLower)) {
+        add(
+          Material3SettingsItem(
+            icon = painterResource(echo.music.iad1tya.R.drawable.ic_echo_wrapped),
+            title = { Text("Echo Wrapped") },
+            description = { Text("Your year in sound & personal music recap") },
+            onClick = { navController.navigate("wrapped") }
+          )
+        )
+      }
+
       if (
         appearanceText.lowercase().contains(searchLower) ||
           appearanceDesc.lowercase().contains(searchLower)
@@ -219,7 +230,7 @@ fun SettingsScreen(
         add(
           Material3SettingsItem(
             isHighlighted = (highlightKey == musicFlowText),
-            icon = painterResource(R.drawable.swipe),
+            icon = painterResource(R.drawable.swipe_vertical),
             title = { Text(musicFlowText) },
             description = { Text(musicFlowDesc) },
             onClick = { navController.navigate("settings/music_flow") }

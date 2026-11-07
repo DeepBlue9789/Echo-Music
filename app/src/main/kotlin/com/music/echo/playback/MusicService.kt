@@ -72,6 +72,7 @@ import com.music.innertube.models.IpVersion
 import com.music.innertube.models.SongItem
 import com.music.innertube.models.WatchEndpoint
 import com.music.innertube.models.response.PlayerResponse
+import com.music.innertube.pages.PodcastPage
 import dagger.hilt.android.AndroidEntryPoint
 import echo.music.iad1tya.MainActivity
 import echo.music.iad1tya.R
@@ -100,6 +101,7 @@ import echo.music.iad1tya.constants.IpVersionKey
 import echo.music.iad1tya.constants.LastFMSessionKey
 import echo.music.iad1tya.constants.LastFMUseNowPlaying
 import echo.music.iad1tya.constants.LastFMUseSendLikes
+import echo.music.iad1tya.constants.MediaSessionConstants
 import echo.music.iad1tya.constants.MediaSessionConstants.CommandToggleLike
 import echo.music.iad1tya.constants.MediaSessionConstants.CommandToggleRepeatMode
 import echo.music.iad1tya.constants.MediaSessionConstants.CommandToggleShuffle
@@ -164,12 +166,14 @@ import echo.music.iad1tya.musicflow.MusicFlowQueue
 import echo.music.iad1tya.playback.queues.EmptyQueue
 import echo.music.iad1tya.playback.queues.ListQueue
 import echo.music.iad1tya.playback.queues.Queue
+import echo.music.iad1tya.playback.queues.YouTubePlaylistQueue
 import echo.music.iad1tya.playback.queues.YouTubeQueue
 import echo.music.iad1tya.playback.queues.filterExplicit
 import echo.music.iad1tya.playback.queues.filterVideoSongs
 import echo.music.iad1tya.ui.screens.settings.DiscordPresenceManager
 import echo.music.iad1tya.utils.CoilBitmapLoader
 import echo.music.iad1tya.utils.NetworkConnectivityObserver
+import echo.music.iad1tya.utils.PodcastProgress
 import echo.music.iad1tya.utils.ScrobbleManager
 import echo.music.iad1tya.utils.YTPlayerUtils
 import echo.music.iad1tya.utils.YTPlayerUtils.PlaybackData
@@ -250,6 +254,12 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   @Inject
   lateinit var songPlayStatsRepository: SongPlayStatsRepository
 
+  @Inject
+  lateinit var navidromeRepository: com.music.echo.cloud.NavidromeRepository
+
+  @Inject
+  lateinit var jellyfinRepository: com.music.echo.cloud.JellyfinRepository
+
   private var trackedMediaItem: MediaItem? = null
   private var trackedDurationMs: Long = 0L
   private var trackedAccumulatedPlayMs: Long = 0L
@@ -274,8 +284,8 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   var preferredDeviceId: Int? = null
     private set
 
-  private val usbAudioDriver by lazy { UsbAudioDriver() }
-  private val usbDacManager by lazy {
+  val usbAudioDriver by lazy { UsbAudioDriver() }
+  val usbDacManager by lazy {
     UsbDacManager(this, usbAudioDriver).apply {
       onDeviceDetachedCallback = {
         if (isBitPerfectEnabled) {
@@ -421,7 +431,21 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
       }
       activeQueueState.value = value
     }
+  /**
+   * Title of the current queue (e.g. the radio mix). Mirrored into the player's
+   * playlist metadata so Android Auto shows it on the queue screen; without it a
+   * started radio gave no visible feedback in the car.
+   */
   var queueTitle: String? = null
+    set(value) {
+      field = value
+      if (!::player.isInitialized) return
+      val update = {
+        player.playlistMetadata = androidx.media3.common.MediaMetadata.Builder().setTitle(value).build()
+      }
+      if (android.os.Looper.myLooper() == player.applicationLooper) update()
+      else android.os.Handler(player.applicationLooper).post(update)
+    }
 
   val currentMediaMetadata = MutableStateFlow<echo.music.iad1tya.models.MediaMetadata?>(null)
   private val currentSong =
@@ -534,6 +558,8 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   private var originalQueueSize: Int = 0
   private var queueGeneration = 0L
   private var loadMoreJob: Job? = null
+  /** Queue [loadMoreJob] is loading the next page of. */
+  private var loadMoreQueue: Queue? = null
 
   private var consecutivePlaybackErr = 0
   private var retryJob: Job? = null
@@ -728,6 +754,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
     setupAudioFocusRequest()
 
     mediaLibrarySessionCallback.apply {
+      service = this@MusicService
       toggleLike = ::toggleLike
       toggleStartRadio = ::toggleStartRadio
       toggleLibrary = ::toggleLibrary
@@ -744,6 +771,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
           ),
         )
         .setBitmapLoader(sessionBitmapLoader)
+        .setCommandButtonsForMediaItems(automotiveItemActions())
         .build()
     player.repeatMode = dataStore.get(RepeatModeKey, REPEAT_MODE_OFF)
 
@@ -1293,6 +1321,206 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
         }
       }
     }
+
+    scope.launch {
+      while (isActive) {
+        delay(PODCAST_SAVE_INTERVAL_MS)
+        if (player.isPlaying) {
+          savePodcastPosition()
+          reportEpisodeProgress(paused = false)
+        }
+      }
+    }
+
+    scope.launch { PodcastProgress.speed.collect { applyEpisodeSpeed() } }
+  }
+
+  internal val isCurrentEpisode: Boolean
+    get() {
+      val metadata = player.currentMetadata ?: return false
+      return PodcastProgress.get(metadata.id) != null ||
+        PodcastProgress.isEpisode(metadata, maxOf(player.duration, metadata.duration * 1000L))
+    }
+
+  private fun isNextItemEpisode(): Boolean {
+    val index = player.nextMediaItemIndex
+    if (index == C.INDEX_UNSET) return false
+    val metadata = player.getMediaItemAt(index).metadata ?: return false
+    return PodcastProgress.get(metadata.id) != null ||
+      PodcastProgress.isEpisode(metadata, metadata.duration * 1000L)
+  }
+
+  /** Music speed to go back to once an episode is over. */
+  private var speedBeforeEpisode: PlaybackParameters? = null
+
+  /** Episodes play at the podcast speed, and music goes back to its own afterwards. */
+  private fun applyEpisodeSpeed() {
+    if (isCurrentEpisode) {
+      if (speedBeforeEpisode == null) speedBeforeEpisode = player.playbackParameters
+      val speed = PodcastProgress.speed.value
+      if (player.playbackParameters.speed != speed) {
+        player.playbackParameters = PlaybackParameters(speed, 1f)
+      }
+    } else {
+      speedBeforeEpisode?.let { player.playbackParameters = it }
+      speedBeforeEpisode = null
+    }
+    if (::mediaSession.isInitialized) updateNotification()
+  }
+
+  private class EpisodeReport(val id: String, val cpn: String, val watchtimeUrl: String) {
+    var lastPositionMs = 0L
+  }
+
+  private var episodeReport: EpisodeReport? = null
+  private val reportingEpisode = java.util.concurrent.atomic.AtomicBoolean(false)
+  /** A pause that arrived during a report, sent once that report is done. */
+  @Volatile private var pendingPausedReport = false
+
+  /**
+   * Tells YouTube how far the playing episode got, so the account's progress follows what is
+   * listened here. Only signed in, and not while listening history is paused.
+   */
+  private fun reportEpisodeProgress(paused: Boolean) {
+    val metadata = player.currentMetadata ?: return
+    if (!isCurrentEpisode || YouTube.cookie.isNullOrEmpty()) return
+    if (dataStore.get(PauseListenHistoryKey, false)) return
+    val positionMs = player.currentPosition
+    val durationMs = player.duration
+    if (durationMs <= 0) return
+    val known = episodeReport?.takeIf { it.id == metadata.id }
+    if (!paused && known != null && positionMs - known.lastPositionMs < EPISODE_REPORT_INTERVAL_MS) {
+      return
+    }
+    if (!reportingEpisode.compareAndSet(false, true)) {
+      if (paused) pendingPausedReport = true
+      return
+    }
+    scope.launch(Dispatchers.IO + SilentHandler) {
+      try {
+        val report =
+          known
+            ?: run {
+              val tracking =
+                YTPlayerUtils.playerResponseForMetadata(metadata.id, null)
+                  .getOrNull()
+                  ?.playbackTracking
+              val watchtimeUrl = tracking?.videostatsWatchtimeUrl?.baseUrl ?: return@launch
+              val cpn = YouTube.newPlaybackNonce()
+              tracking.videostatsPlaybackUrl?.baseUrl?.let {
+                YouTube.registerPlayback(null, it, cpn)
+              }
+              EpisodeReport(metadata.id, cpn, watchtimeUrl).also { episodeReport = it }
+            }
+        YouTube.reportWatchtime(
+          report.watchtimeUrl,
+          report.cpn,
+          positionMs / 1000.0,
+          durationMs / 1000.0,
+          paused,
+        )
+          // A failed report is sent again on the next tick.
+          .onSuccess { report.lastPositionMs = positionMs }
+      } finally {
+        reportingEpisode.set(false)
+        if (pendingPausedReport) {
+          pendingPausedReport = false
+          scope.launch { reportEpisodeProgress(paused = true) }
+        }
+      }
+    }
+  }
+
+  /**
+   * When an episode is the last in the queue, the next one of its show follows, not related
+   * music. A show lists its newest episode first, so the next one comes just before it.
+   */
+  private fun queueNextEpisode() {
+    val metadata = player.currentMetadata ?: return
+    val showId =
+      metadata.artists.firstNotNullOfOrNull { artist ->
+        artist.id?.takeIf(PodcastPage::isShowBrowseId)?.let(PodcastPage::showId)
+      } ?: return
+    if (extendingQueue || pauseAtEndOwner != null) return
+    extendingQueue = true
+    val startGeneration = queueGeneration
+    scope.launch(SilentHandler) {
+      try {
+        val next =
+          withContext(Dispatchers.IO) {
+            var page = YouTube.podcast(showId).getOrNull() ?: return@withContext null
+            var episodes = page.songs
+            var continuation = page.songsContinuation
+            var pages = 1
+            while (
+              episodes.none { it.id == metadata.id } &&
+                continuation != null &&
+                pages < NEXT_EPISODE_MAX_PAGES
+            ) {
+              val more = YouTube.playlistContinuation(continuation).getOrNull() ?: break
+              episodes = episodes + more.songs
+              continuation = more.continuation
+              pages++
+            }
+            val index = episodes.indexOfFirst { it.id == metadata.id }
+            // Later pages do not name their show, which the episode needs to stay tracked.
+            if (index > 0) {
+              episodes[index - 1].let { episode ->
+                if (episode.artists.isNotEmpty()) episode
+                else
+                  episode.copy(
+                    artists =
+                      listOf(
+                        com.music.innertube.models.Artist(
+                          name = page.playlist.title,
+                          id = PodcastPage.showBrowseId(showId),
+                        )
+                      )
+                  )
+              }
+            } else {
+              null
+            }
+          } ?: return@launch
+        if (queueGeneration != startGeneration || player.playbackState == STATE_IDLE) return@launch
+        player.addMediaItem(next.toMediaItem())
+        // A random slot could fall before the current episode, and playback would end there.
+        if (player.shuffleModeEnabled) {
+          applyShuffleOrder(
+            player.currentMediaItemIndex,
+            player.mediaItemCount,
+            dataStore.get(ShufflePlaylistFirstKey, false)
+          )
+        }
+      } finally {
+        extendingQueue = false
+      }
+    }
+  }
+
+  /** Remembers the current podcast episode's position (see [PodcastProgress]). */
+  private fun savePodcastPosition() {
+    val metadata = player.currentMetadata ?: return
+    if (PodcastProgress.get(metadata.id) == null && !PodcastProgress.isEpisode(metadata, player.duration)) {
+      return
+    }
+    PodcastProgress.update(metadata, player.currentPosition, player.duration)
+  }
+
+  /**
+   * Continues an episode where it was left. Saved positions exist only for episodes, so this
+   * also works for items whose episode type was lost (e.g. restored from the database).
+   */
+  private fun resumePodcastPosition(mediaItem: MediaItem?, previous: MediaItem?, reason: Int) {
+    // An episode that played to its end is done.
+    if (previous != null && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+      PodcastProgress.markFinished(previous.mediaId)
+    }
+    val progress = mediaItem?.mediaId?.let(PodcastProgress::get) ?: return
+    PodcastProgress.restore(progress.id)
+    if (progress.isInProgress && player.currentPosition < RESUME_START_WINDOW_MS) {
+      player.seekTo(progress.positionMs)
+    }
   }
 
   private fun createExoPlayer(): ExoPlayer {
@@ -1519,7 +1747,9 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   private fun waitOnNetworkError() {
     if (waitingForNetworkConnection.value) return
 
-    if (retryCount >= MAX_RETRY_COUNT) {
+    // While driving, coverage gaps are expected: keep waiting for the network
+    // (the delay is capped below) instead of giving up after a few attempts.
+    if (retryCount >= MAX_RETRY_COUNT && !isCarConnected()) {
       Timber.tag(TAG).w("Max retry count ($MAX_RETRY_COUNT) reached, stopping playback")
       stopOnError()
       retryCount = 0
@@ -1531,7 +1761,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
     retryJob?.cancel()
     retryJob =
       scope.launch {
-        val delayMs = minOf(3000L * (1 shl retryCount), 30000L)
+        val delayMs = minOf(3000L * (1 shl retryCount.coerceAtMost(4)), 30000L)
         Timber.tag(TAG)
           .d("Waiting ${delayMs}ms before retry attempt ${retryCount + 1}/$MAX_RETRY_COUNT")
         delay(delayMs)
@@ -1584,10 +1814,68 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   }
 
   private fun stopOnError() {
+    // In the car a stopped player leaves Auto on "source error" with no way to
+    // continue but browsing for another song; move on to the next track instead.
+    if (isCarConnected()) {
+      skipOnError()
+      return
+    }
     player.pause()
   }
 
+  /** Whether Android Auto / Automotive OS is currently connected to the session. */
+  private fun isCarConnected(): Boolean =
+    ::mediaSession.isInitialized &&
+      mediaSession.connectedControllers.any { it.packageName in AUTOMOTIVE_PACKAGES }
+
+  /** Browse actions Android Auto shows next to each song (see [MediaLibrarySessionCallback]). */
+  private fun automotiveItemActions(): List<CommandButton> =
+    listOf(
+      CommandButton.Builder(CommandButton.ICON_HEART_UNFILLED)
+        .setDisplayName(getString(R.string.action_like))
+        .setIconUri(resourceUri(R.drawable.favorite_border))
+        .setSessionCommand(MediaSessionConstants.CommandItemLike)
+        .build(),
+      CommandButton.Builder(CommandButton.ICON_PLAYLIST_ADD)
+        .setDisplayName(getString(R.string.play_next))
+        .setIconUri(resourceUri(R.drawable.playlist_play))
+        .setSessionCommand(MediaSessionConstants.CommandItemPlayNext)
+        .build(),
+      CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+        .setDisplayName(getString(R.string.remove_from_continue_listening))
+        .setIconUri(resourceUri(R.drawable.close))
+        .setSessionCommand(MediaSessionConstants.CommandItemDismiss)
+        .build(),
+      CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+        .setDisplayName(getString(R.string.follow))
+        .setIconUri(resourceUri(R.drawable.favorite_border))
+        .setSessionCommand(MediaSessionConstants.CommandItemFollow)
+        .build(),
+      CommandButton.Builder(CommandButton.ICON_UNDEFINED)
+        .setDisplayName(getString(R.string.unfollow))
+        .setIconUri(resourceUri(R.drawable.favorite))
+        .setSessionCommand(MediaSessionConstants.CommandItemUnfollow)
+        .build(),
+    )
+
+  private fun resourceUri(@androidx.annotation.DrawableRes id: Int): android.net.Uri =
+    android.net.Uri.Builder()
+      .scheme(android.content.ContentResolver.SCHEME_ANDROID_RESOURCE)
+      .authority(resources.getResourcePackageName(id))
+      .appendPath(resources.getResourceTypeName(id))
+      .appendPath(resources.getResourceEntryName(id))
+      .build()
+
+  /**
+   * Player buttons for the notification, Android Auto and the cluster. Order
+   * matters: Auto shows the first ones next to the transport controls and moves
+   * the rest to its overflow menu, so like and shuffle come first.
+   */
   private fun updateNotification() {
+    if (isCurrentEpisode) {
+      mediaSession.setCustomLayout(episodePlayerButtons())
+      return
+    }
     mediaSession.setCustomLayout(
       listOf(
         CommandButton.Builder()
@@ -1606,6 +1894,18 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
           )
           .setSessionCommand(CommandToggleLike)
           .setEnabled(currentSong.value != null)
+          .build(),
+        CommandButton.Builder()
+          .setDisplayName(
+            getString(
+              if (player.shuffleModeEnabled) R.string.action_shuffle_off
+              else R.string.action_shuffle_on
+            )
+          )
+          .setIconResId(
+            if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle
+          )
+          .setSessionCommand(CommandToggleShuffle)
           .build(),
         CommandButton.Builder()
           .setDisplayName(
@@ -1629,18 +1929,6 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
           .setSessionCommand(CommandToggleRepeatMode)
           .build(),
         CommandButton.Builder()
-          .setDisplayName(
-            getString(
-              if (player.shuffleModeEnabled) R.string.action_shuffle_off
-              else R.string.action_shuffle_on
-            )
-          )
-          .setIconResId(
-            if (player.shuffleModeEnabled) R.drawable.shuffle_on else R.drawable.shuffle
-          )
-          .setSessionCommand(CommandToggleShuffle)
-          .build(),
-        CommandButton.Builder()
           .setDisplayName(getString(R.string.start_radio))
           .setIconResId(R.drawable.radio)
           .setSessionCommand(CommandToggleStartRadio)
@@ -1649,6 +1937,29 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
       ),
     )
   }
+
+  /**
+   * Skip buttons and speed while an episode plays; next and previous episode remain on the
+   * regular transport controls.
+   */
+  private fun episodePlayerButtons(): List<CommandButton> =
+    listOf(
+      CommandButton.Builder()
+        .setDisplayName(getString(R.string.episode_skip_back))
+        .setIconResId(R.drawable.replay)
+        .setSessionCommand(MediaSessionConstants.CommandEpisodeSkipBack)
+        .build(),
+      CommandButton.Builder()
+        .setDisplayName(getString(R.string.episode_skip_forward))
+        .setIconResId(R.drawable.fast_forward)
+        .setSessionCommand(MediaSessionConstants.CommandEpisodeSkipForward)
+        .build(),
+      CommandButton.Builder()
+        .setDisplayName(PodcastProgress.speedLabel(PodcastProgress.speed.value))
+        .setIconResId(R.drawable.speed)
+        .setSessionCommand(MediaSessionConstants.CommandEpisodeSpeed)
+        .build(),
+    )
 
   private suspend fun recoverSong(
     mediaId: String,
@@ -1808,7 +2119,14 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
     }
   }
 
-  fun startRadioSeamlessly() {
+  /**
+   * Replaces what follows the current song with a radio based on it.
+   *
+   * @param jumpToFirst start the first radio song right away. The car and the
+   *   notification use this: there the radio button otherwise had no visible
+   *   effect, since the current song kept playing and the queue is not shown.
+   */
+  fun startRadioSeamlessly(jumpToFirst: Boolean = false) {
 
     if (!playerInitialized.value) {
       Timber.tag(TAG).w("startRadioSeamlessly called before player initialization")
@@ -1857,6 +2175,10 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
               shufflePlaylistFirst
             )
           }
+          if (jumpToFirst) {
+            player.seekToDefaultPosition(currentIndex + 1)
+            player.play()
+          }
         }
 
         queueGeneration++
@@ -1897,6 +2219,10 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
                     player.mediaItemCount,
                     shufflePlaylistFirst
                   )
+                }
+                if (jumpToFirst) {
+                  player.seekToDefaultPosition(currentIndex + 1)
+                  player.play()
                 }
               }
             }
@@ -2315,8 +2641,15 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   }
 
   fun toggleLike() {
-    scope.launch {
-      val songToToggle = currentSong.first()
+    scope.launch { toggleLike(currentSong.first()) }
+  }
+
+  /** Likes or unlikes [songId], e.g. from an Android Auto browse action. */
+  fun toggleLike(songId: String) {
+    scope.launch { toggleLike(database.song(songId).first()) }
+  }
+
+  private suspend fun toggleLike(songToToggle: echo.music.iad1tya.db.entities.Song?) {
       songToToggle?.let {
         val song = it.song.toggleLike()
         database.query {
@@ -2341,10 +2674,9 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
         currentMediaMetadata.value = player.currentMetadata
       }
     }
-  }
 
   fun toggleStartRadio() {
-    startRadioSeamlessly()
+    startRadioSeamlessly(jumpToFirst = true)
   }
 
   private fun setupLoudnessEnhancer() {
@@ -2497,6 +2829,8 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   ) {
     cutoffGuard.onTrackChanged(mediaItem?.mediaId)
     val prevItem = trackedMediaItem
+    resumePodcastPosition(mediaItem, prevItem, reason)
+    applyEpisodeSpeed()
     if (prevItem != null) {
       if (trackedPlayStartTs > 0L) {
         trackedAccumulatedPlayMs += (System.currentTimeMillis() - trackedPlayStartTs)
@@ -2590,17 +2924,23 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
       }
     }
 
+    val hasPendingSongs = (currentQueue as? YouTubePlaylistQueue)?.hasPendingSongs() == true
     if (
-      dataStore.get(AutoLoadMoreKey, true) &&
         reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
         player.mediaItemCount - player.currentMediaItemIndex <= 5 &&
         currentQueue.hasNextPage() &&
+        (hasPendingSongs ||
+          (dataStore.get(AutoLoadMoreKey, true) &&
         !(dataStore.get(DisableLoadMoreWhenRepeatAllKey, false) &&
-          player.repeatMode == REPEAT_MODE_ALL)
+              player.repeatMode == REPEAT_MODE_ALL))) &&
+        // A page already on its way for this queue is kept: cancelling it could
+        // drop songs the queue has already handed out.
+        !(loadMoreJob?.isActive == true && loadMoreQueue === currentQueue)
     ) {
       loadMoreJob?.cancel()
       val queueAtStart = currentQueue
       val startGeneration = queueGeneration
+      loadMoreQueue = queueAtStart
       loadMoreJob =
         scope.launch(SilentHandler) {
           val mediaItems =
@@ -2634,11 +2974,111 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
         }
     }
 
+    if (isCurrentEpisode) {
+      if (
+        player.repeatMode == REPEAT_MODE_OFF &&
+          !currentQueue.hasNextPage() &&
+          remainingInPlayOrder(1) == 0
+      ) {
+        queueNextEpisode()
+      }
+    } else
+    // Queues without further pages (most of those started from Android Auto are
+    // fixed lists) used to simply run out: continue them with related songs.
+    if (
+      dataStore.get(AutoLoadMoreKey, true) &&
+        reason != Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT &&
+        player.repeatMode == REPEAT_MODE_OFF &&
+        !currentQueue.hasNextPage() &&
+        remainingInPlayOrder(QUEUE_EXTEND_THRESHOLD + 1) <= QUEUE_EXTEND_THRESHOLD
+    ) {
+      extendQueueWithRelated()
+    }
+
     if (dataStore.get(PersistentQueueKey, true)) {
       saveQueueToDisk()
     }
 
     prefetchQueueArtwork()
+  }
+
+  /**
+   * Android Auto also loads the cover URI itself, through the artwork provider,
+   * which keeps its own file cache. Filling it ahead of the transition keeps
+   * those loads instant: when tracks are skipped quickly, slow loads finishing
+   * out of order made the car show a previous track's cover.
+   */
+  private fun warmProviderArtwork(artworkUri: android.net.Uri?) {
+    // Only Android Auto reads that cache: no network or disk work without a car.
+    if (!isCarConnected()) return
+    val url = artworkUri?.toString()?.takeIf { it.startsWith("http") } ?: return
+    scope.launch(Dispatchers.IO) { echo.music.iad1tya.utils.AutomotiveArtwork.artworkFile(this@MusicService, url) }
+  }
+
+  /** Items after the current one in play order (shuffle aware), counting up to [limit]. */
+  private fun remainingInPlayOrder(limit: Int): Int {
+    val timeline = player.currentTimeline
+    var index = player.currentMediaItemIndex
+    if (timeline.isEmpty || index == C.INDEX_UNSET) return 0
+    var count = 0
+    while (count < limit) {
+      index = timeline.getNextWindowIndex(index, REPEAT_MODE_OFF, player.shuffleModeEnabled)
+      if (index == C.INDEX_UNSET) break
+      count++
+    }
+    return count
+  }
+
+  private var extendingQueue = false
+
+  /**
+   * Appends songs related to the last queued one and makes that radio the
+   * current queue, so the regular load-more keeps extending it afterwards.
+   */
+  private fun extendQueueWithRelated() {
+    // Pause at end of the queue asks to stop there, not to continue it.
+    if (extendingQueue || player.mediaItemCount == 0 || pauseAtEndOwner != null) return
+    val seedId = player.getMediaItemAt(player.mediaItemCount - 1).mediaId
+    // The radio needs a YouTube video id; local, addon and cloud songs have none.
+    if (!YOUTUBE_VIDEO_ID.matches(seedId)) return
+    extendingQueue = true
+    val startGeneration = queueGeneration
+    val queueAtStart = currentQueue
+    scope.launch(SilentHandler) {
+      try {
+        val radioQueue = YouTubeQueue(endpoint = WatchEndpoint(videoId = seedId))
+        val items =
+          withContext(Dispatchers.IO) {
+            radioQueue
+              .getInitialStatus()
+              .filterExplicit(dataStore.get(HideExplicitKey, false))
+              .filterVideoSongs(
+                dataStore.get(HideVideoSongsKey, false) ||
+                  dataStore.get(echo.music.iad1tya.constants.DataSaverEnabledKey, false)
+              )
+              .items
+          }
+        if (
+          queueGeneration != startGeneration ||
+            currentQueue !== queueAtStart ||
+            player.playbackState == STATE_IDLE
+        ) return@launch
+        val queued = (0 until player.mediaItemCount).map { player.getMediaItemAt(it).mediaId }.toHashSet()
+        val newItems = items.filter { it.mediaId !in queued }
+        if (newItems.isEmpty()) return@launch
+        player.addMediaItems(newItems)
+        currentQueue = radioQueue
+        if (player.shuffleModeEnabled) {
+          applyShuffleOrder(
+            player.currentMediaItemIndex,
+            player.mediaItemCount,
+            dataStore.get(ShufflePlaylistFirstKey, false)
+          )
+        }
+      } finally {
+        extendingQueue = false
+      }
+    }
   }
 
   /**
@@ -2657,7 +3097,9 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
     if (timeline.isEmpty || index == C.INDEX_UNSET) return
     repeat(ARTWORK_PREFETCH_COUNT + 1) {
       if (index == C.INDEX_UNSET || index >= player.mediaItemCount) return
-      sessionBitmapLoader.prefetch(player.getMediaItemAt(index).mediaMetadata.artworkUri)
+      val artworkUri = player.getMediaItemAt(index).mediaMetadata.artworkUri
+      sessionBitmapLoader.prefetch(artworkUri)
+      warmProviderArtwork(artworkUri)
       index = timeline.getNextWindowIndex(index, player.repeatMode, player.shuffleModeEnabled)
     }
   }
@@ -2667,6 +3109,8 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   ) {
 
     if (playbackState == Player.STATE_ENDED) {
+      // The queue ran out: no transition will tell the last episode is done.
+      savePodcastPosition()
       val isCasting = castConnectionHandler?.isCasting?.value == true
       val isSleepTimerStopping = ::sleepTimer.isInitialized && sleepTimer.pauseWhenSongEnd
       val currentItem = player.currentMediaItem
@@ -2735,6 +3179,10 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   }
 
   override fun onPlayWhenReadyChanged(playWhenReady: Boolean, reason: Int) {
+    if (!playWhenReady) {
+      savePodcastPosition()
+      reportEpisodeProgress(paused = true)
+    }
 
     if (playWhenReady && castConnectionHandler?.isCasting?.value == true) {
       player.pause()
@@ -2822,7 +3270,13 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
       }
     }
 
-    if (events.containsAny(Player.EVENT_IS_PLAYING_CHANGED)) {
+    if (
+      events.containsAny(
+        Player.EVENT_IS_PLAYING_CHANGED,
+        Player.EVENT_PLAYBACK_STATE_CHANGED,
+        Player.EVENT_MEDIA_ITEM_TRANSITION
+      )
+    ) {
       val canonicalDur = (player.currentMetadata?.duration ?: 0) * 1000L
       val safeDur = if (canonicalDur > 0L) canonicalDur else player.duration
       if (player.isPlaying) {
@@ -3611,7 +4065,8 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
           ?: -1L
       val isFullyDownloaded =
         (cachedLength > 0 && downloadCache.isCached(mediaId, 0, cachedLength)) ||
-          (dbSong?.song?.isDownloaded == true && downloadCache.getCachedSpans(mediaId).isNotEmpty())
+          (dbSong?.song?.isDownloaded == true && downloadCache.getCachedSpans(mediaId).isNotEmpty()) ||
+          (downloadCache.getCachedSpans(mediaId).isNotEmpty() && (!isNetworkConnected.value || cachedLength <= 0))
 
       val activeQualityInCache =
         songUrlCache.keys
@@ -3627,6 +4082,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
       val isDataSaver = runCatching { dataStore.get(echo.music.iad1tya.constants.DataSaverEnabledKey, false) }.getOrDefault(false)
       val canUseAddon = !isDataSaver && (if (isMetered) lockedQuality.permitsAddons() else (preferExtensionAudio || lockedQuality.permitsAddons()))
       val hasEnabledAddons = runBlocking(Dispatchers.IO) { extensionManager.hasEnabledAddons() }
+      val canBypassForAddon = canUseAddon && hasEnabledAddons
 
       val isCachedInPlayer = playerCache.isCached(mediaId, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else CHUNK_LENGTH)
       val isCachedInDownload = downloadCache.isCached(mediaId, dataSpec.position, if (dataSpec.length >= 0) dataSpec.length else 1)
@@ -3659,13 +4115,22 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
           return@Factory dataSpec
         }
 
-        // If a cached stream exists, we short-circuit when:
-        // 1. It is already an addon/extension stream, OR
-        // 2. High quality is already cached, OR
-        // 3. We are on mobile data and have cached audio (saving data), OR
-        // 4. Addons cannot be used or none are enabled (so YouTube was expected)
-        if (cachedStream != null && (cachedStream.isFromExtension || isHighQualityCached || isMetered || !canUseAddon || !hasEnabledAddons)) {
-          if (isCachedInDownload || isCachedInPlayer) {
+// If a cached stream exists, we only short-circuit if:
+        // 1. It is already an addon stream, OR
+        // 2. Addons are not active (so YouTube was expected)
+        if (cachedStream != null && (cachedStream.isFromExtension || !canBypassForAddon)) {
+          if (
+            downloadCache.isCached(
+              mediaId,
+              dataSpec.position,
+              if (dataSpec.length >= 0) dataSpec.length else 1
+            )
+          ) {
+            scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
+            return@Factory cachedStream.resolve(dataSpec)
+          }
+
+          if (playerCache.isCached(mediaId, dataSpec.position, CHUNK_LENGTH)) {
             scope.launch(Dispatchers.IO) { recoverSong(mediaId, isOfflinePlayback = true) }
             return@Factory cachedStream.resolve(dataSpec)
           }
@@ -3681,6 +4146,86 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
       var isAddonStream = false
       val playbackData =
         runBlocking(Dispatchers.IO) {
+            if (mediaId.startsWith("navidrome_")) {
+              val rawId = mediaId.removePrefix("navidrome_")
+              val streamUrl = navidromeRepository.getStreamUrl(rawId)
+              if (streamUrl != null) {
+                isAddonStream = true
+                return@runBlocking Result.success(
+                  PlaybackData(
+                    audioConfig = null,
+                    videoDetails = null,
+                    playbackTracking = null,
+                    format =
+                      PlayerResponse.StreamingData.Format(
+                        itag = 0,
+                        url = streamUrl,
+                        mimeType = "audio/flac",
+                        bitrate = 1411000,
+                        width = null,
+                        height = null,
+                        contentLength = null,
+                        quality = "Lossless (Subsonic)",
+                        fps = null,
+                        qualityLabel = null,
+                        averageBitrate = 1411000,
+                        audioQuality = "AUDIO_QUALITY_LOSSLESS",
+                        approxDurationMs = null,
+                        audioSampleRate = 44100,
+                        audioChannels = 2,
+                        loudnessDb = null,
+                        lastModified = null,
+                        signatureCipher = null,
+                        cipher = null,
+                        audioTrack = null
+                      ),
+                    streamUrl = streamUrl,
+                    streamExpiresInSeconds = 86400,
+                    headers = mapOf()
+                  )
+                )
+              }
+            } else if (mediaId.startsWith("jellyfin_")) {
+              val rawId = mediaId.removePrefix("jellyfin_")
+              val streamUrl = jellyfinRepository.getStreamUrl(rawId)
+              if (streamUrl != null) {
+                isAddonStream = true
+                return@runBlocking Result.success(
+                  PlaybackData(
+                    audioConfig = null,
+                    videoDetails = null,
+                    playbackTracking = null,
+                    format =
+                      PlayerResponse.StreamingData.Format(
+                        itag = 0,
+                        url = streamUrl,
+                        mimeType = "audio/flac",
+                        bitrate = 1411000,
+                        width = null,
+                        height = null,
+                        contentLength = null,
+                        quality = "Lossless (Jellyfin)",
+                        fps = null,
+                        qualityLabel = null,
+                        averageBitrate = 1411000,
+                        audioQuality = "AUDIO_QUALITY_LOSSLESS",
+                        approxDurationMs = null,
+                        audioSampleRate = 44100,
+                        audioChannels = 2,
+                        loudnessDb = null,
+                        lastModified = null,
+                        signatureCipher = null,
+                        cipher = null,
+                        audioTrack = null
+                      ),
+                    streamUrl = streamUrl,
+                    streamExpiresInSeconds = 86400,
+                    headers = mapOf()
+                  )
+                )
+              }
+            }
+
             val dbSong = database.song(mediaId).firstOrNull()
             // Use metadata of the item actually being resolved, not the global
             // trackedMediaItem: ExoPlayer resolves N+1 while trackedMediaItem is
@@ -3846,6 +4391,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
                 mimeType = format.mimeType.split(";")[0],
                 codecs =
                   if (format.mimeType.contains("flac", ignoreCase = true)) "flac"
+                  else if (format.mimeType.contains("alac", ignoreCase = true)) "alac"
                   else format.mimeType
                     .substringAfter("codecs=", "\"\"")
                     .substringBefore(";")
@@ -3923,7 +4469,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
           }
         )
       }
-    }
+    }.setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
 
   override fun onPlaybackStatsReady(
     eventTime: AnalyticsListener.EventTime,
@@ -4091,6 +4637,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
 
   override fun onDestroy() {
     isRunning = false
+    savePodcastPosition()
     crossfadeTriggerJob?.cancel()
     crossfadeJob?.cancel()
     releasePrebuffered()
@@ -4412,6 +4959,8 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
       !crossfadeEnabled || player.duration == C.TIME_UNSET || player.duration <= crossfadeDuration
     )
       return
+    // Fading would cut speech, and the swap would skip an episode's resume and speed.
+    if (isCurrentEpisode || isNextItemEpisode()) return
     if (crossfadeGapless && isNextItemGapless()) return
     if (!player.hasNextMediaItem() && player.repeatMode != REPEAT_MODE_ONE) return
 
@@ -4948,6 +5497,7 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
 
     fadingPlayer = currentPlayer
     player = nextPlayer
+    player.playlistMetadata = currentPlayer.playlistMetadata
     player.pauseAtEndOfMediaItems = pauseAtEndOwner != null && pauseAtEndOwner === currentQueue
     _playerFlow.value = player
     secondaryPlayer = null
@@ -5163,6 +5713,20 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
   }
 
   companion object {
+    /** Android Auto controllers (systemui is left out: on phones it is always connected). */
+    private val AUTOMOTIVE_PACKAGES =
+      setOf("com.google.android.projection.gearhead", "com.google.android.gms.car")
+
+    /** Songs left in a page-less queue at which related songs are appended. */
+    private const val QUEUE_EXTEND_THRESHOLD = 3
+    /** A saved episode position is applied only while the episode is still at its start. */
+    private const val RESUME_START_WINDOW_MS = 5_000L
+    private const val PODCAST_SAVE_INTERVAL_MS = 5_000L
+    private const val EPISODE_REPORT_INTERVAL_MS = 30_000L
+    private const val NEXT_EPISODE_MAX_PAGES = 20
+
+    private val YOUTUBE_VIDEO_ID = Regex("[A-Za-z0-9_-]{11}")
+
     /** Upcoming queue items whose covers are kept ready for the car. */
     private const val ARTWORK_PREFETCH_COUNT = 2
     const val ROOT = "root"
@@ -5173,6 +5737,9 @@ class MusicService : MediaLibraryService(), Player.Listener, PlaybackStatsListen
     const val YOUTUBE_PLAYLIST = "youtube_playlist"
     const val HOME = "home"
     const val HOME_SECTION = "home_section"
+    const val LIBRARY = "library"
+    const val HISTORY = "history"
+    const val PODCAST = "podcast"
     const val SEARCH = "search"
     const val SHUFFLE_ACTION = "__shuffle__"
 
